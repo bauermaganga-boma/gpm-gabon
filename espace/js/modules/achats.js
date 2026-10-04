@@ -24,6 +24,26 @@
     dg: { label: 'Direction générale', who: 'Direction générale', profil: 'admin', login: 'direction' }
   };
   var PROFILE_STEP = { achats: 'chef', finance: 'daf', admin: 'dg' };
+  /* Espaces par site : chaque site a son chef de service Achats et son responsable financier */
+  var SITE_STEP = {
+    OWE: { chef: { who: 'Obiang Nze Serge', login: 'lbv.achats' }, daf: { who: 'Moussounda Christelle', login: 'lbv.finance' } },
+    POG: { chef: { who: 'Ndjoli Hugues', login: 'pog.achats' }, daf: { who: 'Boukandou Gisèle', login: 'pog.finance' } }
+  };
+  var LIEUX = { OWE: 'Magasin central GPM — zone portuaire d\'Owendo', POG: 'Magasin de Port-Gentil' };
+  var SITE_L = { OWE: 'Owendo', POG: 'Port-Gentil' };
+  function sc() { return E.scope(); }
+  function siteOf(o) { return (o && o.site) || 'OWE'; }
+  function stepWho(k, site) { var x = SITE_STEP[site || sc() || 'OWE']; return x && x[k] ? x[k].who : STEP[k].who; }
+  function stepLogin(k, site) { var x = SITE_STEP[site || sc() || 'OWE']; return x && x[k] ? x[k].login : STEP[k].login; }
+  function lieuDefaut(site) { return LIEUX[site || sc() || 'OWE']; }
+  /* colonne « Site » des listes : seulement en vue globale */
+  function siteBadge(o) { var x = siteOf(o); return '<span class="badge plain ' + (x === 'POG' ? 'tone-green' : 'tone-blue') + '">' + SITE_L[x] + '</span>'; }
+  function withSiteCol(cols) { return sc() ? cols : [cols[0], { label: 'Site', render: siteBadge, csv: function (o) { return SITE_L[siteOf(o)]; } }].concat(cols.slice(1)); }
+  /* filtre par site (vue globale uniquement ; n'affecte pas les indicateurs du module) */
+  function siteOk(o) { return !!sc() || !st.f.site || siteOf(o) === st.f.site; }
+  function siteFilter() { return sc() ? '' : '<select class="select fin-site-f" id="f-site"><option value="">Tous les sites</option><option value="OWE"' + (st.f.site === 'OWE' ? ' selected' : '') + '>Libreville (Owendo)</option><option value="POG"' + (st.f.site === 'POG' ? ' selected' : '') + '>Port-Gentil</option></select>'; }
+  function bindSiteFilter(body, redraw) { var x = body.querySelector('#f-site'); if (x) x.onchange = function () { st.f.site = x.value; st.lim = {}; redraw(); }; }
+  function empNom(id) { var e = S.raw('employes').find(function (x) { return x.id === id; }); return e ? e.nom : id || '—'; }
   var TONE = {
     'Brouillon': 'grey', 'En validation': 'orange', 'Complément demandé': 'yellow', 'Validée': 'green', 'Refusée': 'red', 'En consultation': 'violet', 'Commandée': 'blue',
     'En cours': 'blue', 'Offres reçues': 'orange', 'Attribuée': 'green', 'Infructueuse': 'grey',
@@ -46,16 +66,18 @@
   function mkey(dt) { return String(dt).slice(0, 7); }
   function nextId(col, prefix) {
     var max = 0;
-    S.all(col).forEach(function (x) { var m = /-(\d{4})$/.exec(x.id || ''); if (m && x.id.indexOf(prefix + '-') === 0) max = Math.max(max, +m[1]); });
+    /* calculé sur toute la collection (les deux sites) : pas de numéro en double entre Owendo et Port-Gentil */
+    S.raw(col).forEach(function (x) { var m = /-(\d{4})$/.exec(x.id || ''); if (m && x.id.indexOf(prefix + '-') === 0) max = Math.max(max, +m[1]); });
     return prefix + '-' + Y + '-' + String((max || 100) + 1).padStart(4, '0');
   }
   function stamp() { return new Date().toISOString(); }
-  function empIdByName(name) { var n = E.norm(name); var e = S.all('employes').find(function (x) { return E.norm(x.nom).indexOf(n) === 0; }); return e ? e.id : ''; }
+  function empIdByName(name, site) { var n = E.norm(name); var e = S.raw('employes').find(function (x) { return E.norm(x.nom).indexOf(n) === 0 && (!site || (x.site || 'OWE') === site); }); return e ? e.id : ''; }
   function myEmp() { var u = user(); if (!u.name) return ''; var toks = E.norm(u.name).split(/\s+/); var e = S.all('employes').find(function (x) { var n = E.norm(x.nom); return toks.every(function (t) { return n.indexOf(t) >= 0; }); }); return e ? e.id : ''; }
   function stars(n) { var r = Math.round(n); return '<span class="fin-stars" title="' + F.num(n, 1) + ' / 5">' + '★★★★★'.slice(0, r) + '<span>' + '★★★★★'.slice(r) + '</span></span>'; }
-  function imputations() {
-    var base = ['Budget de fonctionnement', 'Budget maintenance courante', 'Arrêt technique du remorqueur RM-02', 'OT-' + Y + '-0398 · Grue n° 2 — réducteur d\'orientation', 'OT-' + Y + '-0412 · Vedette pilote Estuaire', 'OT-' + Y + '-0437 · Défenses poste 3', 'OT-' + Y + '-0451 · Éclairage du parc'];
-    var prj = S.has('projets') ? S.all('projets').map(function (p) { return p.id + ' · ' + (p.code || p.nom || ''); }) : ['PRJ-01 · DEF-P3', 'PRJ-02 · DRAG', 'PRJ-04 · GR-REV'];
+  function imputations(site) {
+    var s = site || sc();
+    var base = ['Budget de fonctionnement', 'Budget maintenance courante'].concat(s === 'POG' ? ['Arrêt technique du remorqueur RM-03 (Cap Lopez)', 'OT-' + Y + '-0519 · Barge Mandji — joints de raccord', 'OT-' + Y + '-0506 · Reach stacker RS-03', 'Plan d\'urgence antipollution (POLMAR)'] : ['Arrêt technique du remorqueur RM-02', 'OT-' + Y + '-0398 · Grue n° 2 — réducteur d\'orientation', 'OT-' + Y + '-0412 · Vedette pilote Estuaire', 'OT-' + Y + '-0437 · Défenses poste 3', 'OT-' + Y + '-0451 · Éclairage du parc']);
+    var prj = S.has('projets') ? S.all('projets').filter(function (p) { return !s || siteOf(p) === s; }).map(function (p) { return p.id + ' · ' + (p.code || p.nom || ''); }) : ['PRJ-01 · DEF-P3', 'PRJ-02 · DRAG', 'PRJ-04 · GR-REV'];
     return base.concat(prj);
   }
 
@@ -83,7 +105,10 @@
     function da(n, off, dem, dir, objet, cat, imp, urg, just, lignes, statut, visas, extra) {
       var o = { id: 'DA-' + Y + '-' + String(n).padStart(4, '0'), date: d(off), demandeur: empIdByName(dem), direction: dir, objet: objet, categorie: cat, imputation: imp, urgence: urg, besoin: d(off + 35), justification: just, lignes: L(lignes), statut: statut, visas: visas || [] };
       o.montant = E.sum(o.lignes, function (l) { return l.qte * l.pu; });
-      Object.assign(o, extra || {}); DA.push(o); return o;
+      o.site = 'OWE';
+      Object.assign(o, extra || {});
+      if (o.site === 'POG') { o.demandeur = empIdByName(dem, 'POG') || o.demandeur; o.visas.forEach(function (v) { if (v.etape !== 'dg') v.user = stepWho(v.etape, 'POG'); }); }
+      DA.push(o); return o;
     }
     var prj = function (id, def) { var p = S.has('projets') && S.get('projets', id); return id + ' · ' + (p ? p.code : def); };
     da(101, -75, 'Mbadinga', 'TECH', 'Réducteur d\'orientation — grue mobile n° 2', 'Pièces de grues & engins', OT(398, 'Grue n° 2 — réducteur d\'orientation'), 'Urgente', 'Bruit et échauffement anormaux du réducteur d\'orientation ; risque d\'immobilisation de la grue pendant les escales de porte-conteneurs.',
@@ -95,7 +120,7 @@
     da(104, -60, 'Bekale', 'MAR', 'Révision générale du moteur principal — remorqueur Mondah', 'Pièces navales & moteurs', 'Arrêt technique du remorqueur RM-02', 'Urgente', 'Révision des 20 000 heures ; le remorqueur est indispensable aux manœuvres des grands porte-conteneurs à Owendo.',
       [['Kit de révision moteur principal (pièces constructeur)', 2, 'lot', 165000000], ['Main-d\'œuvre de révision en cale sèche', 1, 'forfait', 58000000]], 'Commandée', [V('chef', -59), V('daf', -57, 'Visé', 'Montant inscrit au budget d\'investissement de la flotte.'), V('dg', -55, 'Visé', 'Accord — impératif pour la sécurité des manœuvres.')], { consultationId: 'CO-' + Y + '-0043', bcId: 'BC-' + Y + '-0140' });
     da(105, -55, 'Nzamba', 'EXP', 'Matériel antipollution — appontement de soutage', 'Sécurité, EPI & antipollution', 'Budget de fonctionnement', 'Normale', 'Reconstitution du stock antipollution après l\'exercice POLMAR (plan d\'urgence de Port-Gentil).',
-      [['Kit absorbant hydrocarbures', 10, 'kit', 185000, 'ART-1028'], ['Barrage flottant (section de 25 m)', 1, 'section', 1250000], ['Dispersant agréé (fût 200 L)', 2, 'fût', 640000]], 'Commandée', [V('chef', -54)], { bcId: 'BC-' + Y + '-0141' });
+      [['Kit absorbant hydrocarbures', 10, 'kit', 185000, 'ART-1028'], ['Barrage flottant (section de 25 m)', 1, 'section', 1250000], ['Dispersant agréé (fût 200 L)', 2, 'fût', 640000]], 'Commandée', [V('chef', -54)], { bcId: 'BC-' + Y + '-0141', site: 'POG' });
     da(106, -48, 'Minko', 'TECH', 'Défenses d\'accostage et bollards — poste 3 (Owendo)', 'Amarrage & accastillage', prj('PRJ-01', 'DEF-P3'), 'Urgente', 'Défenses du poste roulier endommagées ; exigence de la revue de sécurité des accostages.',
       [['Défense cylindrique Ø 1 000 mm', 6, 'u', 9200000], ['Bollard d\'amarrage 50 t', 6, 'u', 1650000]], 'Commandée', [V('chef', -47), V('daf', -45), V('dg', -44, 'Visé', 'Accord. Suivre le délai de près.')], { consultationId: 'CO-' + Y + '-0044', bcId: 'BC-' + Y + '-0143' });
     da(107, -40, 'Mayila', 'TECH', 'Projecteurs LED et câbles — éclairage du parc à conteneurs', 'Électricité & éclairage', OT(451, 'Éclairage du parc'), 'Normale', 'Zones sombres relevées lors de l\'audit de sûreté de nuit (code ISPS).',
@@ -106,8 +131,8 @@
       [['Radio VHF marine portative étanche', 20, 'u', 365000], ['Station de charge multiple', 1, 'u', 1250000]], 'En consultation', [V('chef', -25), V('daf', -23)], { consultationId: 'CO-' + Y + '-0046' });
     da(110, -20, 'Mouketou', 'TER', 'Location d\'une grue de renfort — révision de la grue n° 1', 'Prestations, levage & transport', prj('PRJ-04', 'GR-REV'), 'Normale', 'Maintenir la cadence de manutention pendant l\'immobilisation de la grue n° 1.',
       [['Grue mobile 100 t avec opérateur (location)', 18, 'j', 980000], ['Amenée et repli', 2, 'forfait', 3100000]], 'En consultation', [V('chef', -19), V('daf', -17)], { consultationId: 'CO-' + Y + '-0047' });
-    da(111, -12, 'Minko', 'TECH', 'Levé bathymétrique et étude de dragage — chenal de Port-Gentil', 'Études, hydrographie & dragage', prj('PRJ-02', 'DRAG'), 'Normale', 'Préalable au dimensionnement de la campagne de dragage d\'entretien.',
-      [['Levé bathymétrique multifaisceaux', 6, 'jour', 4200000], ['Prélèvements et analyses de sédiments', 12, 'u', 850000], ['Rapport d\'étude de dragage', 1, 'forfait', 9500000]], 'Validée', [V('chef', -11), V('daf', -8, 'Visé', 'Lancer une consultation restreinte (3 bureaux d\'études).')]);
+    da(111, -12, 'Bivigou', 'EXP', 'Levé bathymétrique et étude de dragage — chenal de Port-Gentil', 'Études, hydrographie & dragage', prj('PRJ-02', 'DRAG'), 'Normale', 'Préalable au dimensionnement de la campagne de dragage d\'entretien.',
+      [['Levé bathymétrique multifaisceaux', 6, 'jour', 4200000], ['Prélèvements et analyses de sédiments', 12, 'u', 850000], ['Rapport d\'étude de dragage', 1, 'forfait', 9500000]], 'Validée', [V('chef', -11), V('daf', -8, 'Visé', 'Lancer une consultation restreinte (3 bureaux d\'études).')], { site: 'POG' });
     da(112, -6, 'Bekale', 'MAR', 'Turbocompresseur — remorqueur Komo', 'Pièces navales & moteurs', 'Budget maintenance courante', 'Urgente', 'Turbocompresseur de rechange en rupture au magasin (ART-1021) ; le remorqueur Komo fonctionne à puissance réduite.',
       [['Turbocompresseur de moteur (échange standard)', 1, 'u', 14500000, 'ART-1021'], ['Kit de joints de montage', 2, 'u', 185000]], 'En validation', [V('chef', -5, 'Visé', 'Conforme au plan de maintenance de la flotte.')]);
     da(113, -4, 'Ekomi', 'MAR', 'Pompe de cale — vedette d\'amarrage Akanda', 'Pièces navales & moteurs', 'Budget maintenance courante', 'Normale', 'Pompe de cale hors service constatée lors de la visite de sécurité.',
@@ -120,6 +145,15 @@
       [['Bureau de direction', 6, 'u', 650000], ['Fauteuil ergonomique', 10, 'u', 235000]], 'Refusée', [V('chef', -8), V('daf', -7, 'Refusé', 'Dépense non prioritaire — à reporter au budget de l\'an prochain.')]);
     da(117, -1, 'Mengue', 'ACH', 'Aussières et câble de levage — stock de sécurité', 'Amarrage & accastillage', 'Budget maintenance courante', 'Normale', 'Articles ART-1010 (aussières) et ART-1001 (câble de levage des grues) sous le seuil minimum du magasin.',
       [['Aussière polyamide double tresse Ø 64 mm (220 m)', 4, 'u', 4200000, 'ART-1010'], ['Câble de levage antigiratoire Ø 30 mm', 300, 'm', 38000, 'ART-1001'], ['Graisse EP2 au lithium (seau 18 kg)', 8, 'seau', 68000, 'ART-1018']], 'En validation', []);
+    /* Port-Gentil : remorqueur Cap Lopez, barge de soutage Mandji, offshore, eau douce */
+    da(118, -3, 'Kombila', 'MAR', 'Aussière de remorquage et anodes — remorqueur Cap Lopez', 'Amarrage & accastillage', 'Arrêt technique du remorqueur RM-03 (Cap Lopez)', 'Urgente', 'Aussière de remorquage ragée lors de l\'assistance d\'un pétrolier à l\'appontement ; une seule aussière de rechange au magasin de Port-Gentil.',
+      [['Aussière de remorquage HMPE Ø 40 mm', 1, 'u', 6800000, 'ART-1043'], ['Anodes zinc de coque (lot de 10)', 2, 'lot', 210000, 'ART-1049']], 'En validation', [V('chef', -2, 'Visé', 'Pièce de sécurité — à traiter en priorité.')], { site: 'POG' });
+    da(119, -5, 'Ogandaga', 'EXP', 'Kit de joints et étalonnage du compteur volumétrique — barge Mandji', 'Pièces navales & moteurs', 'OT-' + Y + '-0519 · Barge Mandji — joints de raccord', 'Urgente', 'Compteur de soutage hors tolérance au dernier contrôle ; kit de joints en rupture (ART-1038). Livraisons de soutage facturées sur ce comptage.',
+      [['Kit de joints du compteur volumétrique de soutage', 3, 'kit', 680000, 'ART-1038'], ['Étalonnage du compteur par organisme agréé', 1, 'forfait', 950000]], 'En validation', [], { site: 'POG' });
+    da(120, -30, 'Bivigou', 'EXP', 'Élingues et manilles offshore certifiées — quai commercial B', 'Prestations, levage & transport', 'Budget maintenance courante', 'Normale', 'Exigence des clients offshore : apparaux de levage certifiés DNV 2.7-1 pour les colis des navires ravitailleurs.',
+      [['Élingue offshore certifiée DNV 2.7-1 (jeu 4 brins)', 4, 'jeu', 1650000, 'ART-1041'], ['Manille offshore haute résistance 25 t', 6, 'u', 210000, 'ART-1042']], 'Commandée', [V('chef', -29), V('daf', -27)], { site: 'POG', consultationId: 'CO-' + Y + '-0048', bcId: 'BC-' + Y + '-0151' });
+    da(121, -7, 'Nzamba', 'EXP', 'Combinaisons antistatiques et gants — équipe de soutage', 'Sécurité, EPI & antipollution', 'Plan d\'urgence antipollution (POLMAR)', 'Normale', 'Dotation de l\'équipe de soutage et d\'eau douce ; stock de combinaisons sous le seuil mini.',
+      [['Combinaison antistatique ignifugée (soutage)', 20, 'u', 85000, 'ART-1048'], ['Gants nitrile résistants aux hydrocarbures', 100, 'paire', 4500]], 'Validée', [V('chef', -6, 'Visé', 'Conforme — consultation restreinte EPI.')], { site: 'POG' });
 
     /* consultations et comparaison des devis */
     function dv(f, off, ref, montant, delai, conf, cond, com) { return { fournisseur: f, date: d(off), ref: ref, montant: montant, delai: delai, conformite: conf, conditions: cond || CONDS[0], validite: d(off + 60), commentaire: com || '' }; }
@@ -137,25 +171,28 @@
       { id: 'CO-' + Y + '-0046', daId: 'DA-' + Y + '-0109', date: d(-22), limite: d(-8), mode: 'Consultation restreinte', fournisseurs: ['F-007', 'F-004', 'F-009'], statut: 'Offres reçues',
         devis: [dv('F-007', -15, 'SPG-OFF-341', 7950000, 10, 'Conforme'), dv('F-004', -12, 'GET-DV-1055', 8400000, 21, 'Conforme'), dv('F-009', -10, 'BO-DV-2210', 7100000, 30, 'Non conforme', CONDS[0], 'Appareils non étanches (indice IPX7 exigé).')] },
       { id: 'CO-' + Y + '-0047', daId: 'DA-' + Y + '-0110', date: d(-16), limite: d(2), mode: 'Consultation restreinte', fournisseurs: ['F-006', 'F-008', 'F-001'], statut: 'En cours',
-        devis: [dv('F-006', -9, 'MT-Q-8262', 22900000, 7, 'Conforme'), dv('F-008', -7, 'ESA-OFF-1261', 24600000, 10, 'Conforme avec réserves', CONDS[0], 'Disponibilité de la grue à confirmer.')] }
+        devis: [dv('F-006', -9, 'MT-Q-8262', 22900000, 7, 'Conforme'), dv('F-008', -7, 'ESA-OFF-1261', 24600000, 10, 'Conforme avec réserves', CONDS[0], 'Disponibilité de la grue à confirmer.')] },
+      { id: 'CO-' + Y + '-0048', daId: 'DA-' + Y + '-0120', date: d(-26), limite: d(-20), mode: 'Consultation restreinte', fournisseurs: ['F-006', 'F-005'], statut: 'Attribuée', attributaire: 'F-006', dateAttribution: d(-19), bcId: 'BC-' + Y + '-0151',
+        devis: [dv('F-006', -22, 'MT-Q-8190', 7540000, 12, 'Conforme'), dv('F-005', -21, 'MRF-Q-8121', 7380000, 45, 'Conforme', CONDS[1], 'Fret maritime depuis Rotterdam.')] }
     ];
-    CO.forEach(function (c) { var o = DA.find(function (x) { return x.id === c.daId; }); c.objet = o.objet; c.estimation = o.montant; c.categorie = o.categorie; });
+    CO.forEach(function (c) { var o = DA.find(function (x) { return x.id === c.daId; }); c.objet = o.objet; c.estimation = o.montant; c.categorie = o.categorie; c.site = o.site; });
 
     /* bons de commande */
     function scaleLines(daId, montant) { var o = DA.find(function (x) { return x.id === daId; }), r = montant / o.montant; return o.lignes.map(function (l) { return Object.assign({}, l, { pu: Math.round(l.pu * r / 100) * 100 }); }); }
     var BC = [];
     function bc(n, f, off, liv, objet, cat, imp, lignes, statut, extra) {
-      var o = { id: 'BC-' + Y + '-' + String(n).padStart(4, '0'), date: d(off), fournisseur: f, objet: objet, categorie: cat, imputation: imp, lignes: lignes.map(function (l) { return Object.assign({ recu: 0 }, l); }), livraisonPrevue: d(liv), conditions: CONDS[0], lieu: 'Magasin central GPM — zone portuaire d\'Owendo', acheteur: empIdByName('Essono'), statut: statut, receptions: [], historique: [{ date: d(off), statut: 'Émis' }] };
+      var o = { id: 'BC-' + Y + '-' + String(n).padStart(4, '0'), date: d(off), fournisseur: f, objet: objet, categorie: cat, imputation: imp, lignes: lignes.map(function (l) { return Object.assign({ recu: 0 }, l); }), livraisonPrevue: d(liv), conditions: CONDS[0], lieu: LIEUX.OWE, acheteur: empIdByName('Essono'), statut: statut, receptions: [], historique: [{ date: d(off), statut: 'Émis' }], site: 'OWE' };
+      if (extra && extra.site === 'POG') { o.lieu = LIEUX.POG; o.acheteur = stepWho('chef', 'POG'); }
       Object.assign(o, extra || {}); BC.push(o); return o;
     }
-    function rec(o, off, qtes, bl, com) { o.receptions.push({ id: 'RC-' + o.id.slice(-4) + '-' + (o.receptions.length + 1), date: d(off), bl: bl, par: 'Mengue Laure', conformite: com ? 'Avec réserves' : 'Conforme', commentaire: com || '', lignes: qtes.map(function (q, i) { return { i: i, qte: q }; }).filter(function (x) { return x.qte > 0; }) }); qtes.forEach(function (q, i) { o.lignes[i].recu = (o.lignes[i].recu || 0) + q; }); }
+    function rec(o, off, qtes, bl, com) { o.receptions.push({ id: 'RC-' + o.id.slice(-4) + '-' + (o.receptions.length + 1), date: d(off), bl: bl, par: o.site === 'POG' ? 'Mamfoumbi Diane' : 'Mengue Laure', conformite: com ? 'Avec réserves' : 'Conforme', commentaire: com || '', lignes: qtes.map(function (q, i) { return { i: i, qte: q }; }).filter(function (x) { return x.qte > 0; }) }); qtes.forEach(function (q, i) { o.lignes[i].recu = (o.lignes[i].recu || 0) + q; }); }
     var b;
     b = bc(136, 'F-002', -60, -30, 'Réducteur d\'orientation — grue mobile n° 2', 'Pièces de grues & engins', OT(398, 'Grue n° 2 — réducteur d\'orientation'), scaleLines('DA-' + Y + '-0101', 33900000), 'Soldé', { daId: 'DA-' + Y + '-0101', consultationId: 'CO-' + Y + '-0041' }); rec(b, -28, [1, 1, 1], 'BL-CPE-1452');
     b = bc(137, 'F-006', -55, -50, 'Transport et levage de colis lourds — appel sur contrat cadre', 'Prestations, levage & transport', 'Budget maintenance courante', L([['Grue mobile 60 t (journée)', 4, 'j', 650000], ['Semi-remorque surbaissée', 3, 'voyage', 720000]]), 'Soldé', { conditions: CONDS[2] }); rec(b, -50, [4, 3], 'PV-MT-0877');
     b = bc(138, 'F-007', -66, -52, 'EPI — dotation trimestrielle (marché cadre)', 'Sécurité, EPI & antipollution', 'Budget de fonctionnement', DA[1].lignes.map(function (l) { return Object.assign({}, l, { pu: Math.round(l.pu * 0.97) }); }), 'Facturé', { daId: 'DA-' + Y + '-0102', conditions: CONDS[1] }); rec(b, -53, [120, 120, 80, 600], 'BL-SPG-2207');
     b = bc(139, 'F-008', -58, -30, 'Pneus de reach stacker', 'Pièces de grues & engins', 'Budget maintenance courante', scaleLines('DA-' + Y + '-0103', 17100000), 'Partiellement reçu', { daId: 'DA-' + Y + '-0103', consultationId: 'CO-' + Y + '-0042' }); rec(b, -27, [6, 6], 'BL-ESA-0931', 'Reliquat de 4 pneus annoncé sous 3 semaines.');
     b = bc(140, 'F-001', -52, 18, 'Révision générale du moteur principal — remorqueur Mondah', 'Pièces navales & moteurs', 'Arrêt technique du remorqueur RM-02', scaleLines('DA-' + Y + '-0104', 388000000), 'Confirmé', { daId: 'DA-' + Y + '-0104', consultationId: 'CO-' + Y + '-0043', conditions: CONDS[3], lieu: 'Chantier naval — Owendo', historique: [{ date: d(-52), statut: 'Émis' }, { date: d(-50), statut: 'Confirmé' }] });
-    b = bc(141, 'F-007', -51, -21, 'Matériel antipollution — appontement de soutage', 'Sécurité, EPI & antipollution', 'Budget de fonctionnement', DA[4].lignes.map(function (l) { return Object.assign({}, l); }), 'Facturé', { daId: 'DA-' + Y + '-0105', lieu: 'Magasin de Port-Gentil' }); rec(b, -20, [10, 1, 2], 'BL-SPG-5521');
+    b = bc(141, 'F-007', -51, -21, 'Matériel antipollution — appontement de soutage', 'Sécurité, EPI & antipollution', 'Budget de fonctionnement', DA[4].lignes.map(function (l) { return Object.assign({}, l); }), 'Facturé', { daId: 'DA-' + Y + '-0105', site: 'POG' }); rec(b, -20, [10, 1, 2], 'BL-SPG-5521');
     b = bc(142, 'F-009', -40, -36, 'Fournitures de bureau et consommables d\'impression', 'Fournitures & informatique', 'Budget de fonctionnement', L([['Ramettes papier A4 80 g', 200, 'u', 3200], ['Cartouches de toner', 24, 'u', 48000], ['Classeurs et fournitures diverses', 1, 'lot', 420000]]), 'Soldé', { conditions: CONDS[4] }); rec(b, -36, [200, 24, 1], 'BL-BO-3310');
     b = bc(143, 'F-005', -38, -5, 'Défenses d\'accostage et bollards — poste 3', 'Amarrage & accastillage', prj('PRJ-01', 'DEF-P3'), scaleLines('DA-' + Y + '-0106', 61500000), 'Confirmé', { daId: 'DA-' + Y + '-0106', consultationId: 'CO-' + Y + '-0044', conditions: CONDS[1], lieu: 'Poste 3 — quai d\'Owendo', historique: [{ date: d(-38), statut: 'Émis' }, { date: d(-36), statut: 'Confirmé' }] });
     b = bc(144, 'F-004', -17, -2, 'Projecteurs LED et câbles — éclairage du parc', 'Électricité & éclairage', OT(451, 'Éclairage du parc'), scaleLines('DA-' + Y + '-0107', 12400000), 'Émis', { daId: 'DA-' + Y + '-0107', consultationId: 'CO-' + Y + '-0045' });
@@ -165,12 +202,16 @@
     b = bc(148, 'F-006', -10, 9, 'Location de grue 80 t — pose des défenses du poste 3', 'Prestations, levage & transport', OT(437, 'Défenses poste 3'), L([['Grue télescopique 80 t avec opérateur', 8, 'j', 720000], ['Amenée et repli', 1, 'forfait', 650000]]), 'Confirmé', { conditions: CONDS[2], historique: [{ date: d(-10), statut: 'Émis' }, { date: d(-9), statut: 'Confirmé' }] });
     b = bc(149, 'F-007', -6, 8, 'Bouées couronnes et gilets autogonflants', 'Sécurité, EPI & antipollution', 'Budget de fonctionnement', L([['Bouée couronne avec ligne de vie 30 m', 12, 'u', 58000, 'ART-1027'], ['Gilet autogonflant 275 N', 120, 'u', 14500], ['Gants de manutention anti-coupure', 200, 'paire', 6500]]), 'Émis');
     b = bc(150, 'F-010', -3, 42, 'Levé hydrographique complémentaire — accès au poste 4', 'Études, hydrographie & dragage', 'Budget maintenance courante', L([['Levé bathymétrique multifaisceaux', 1, 'u', 18600000], ['Rapport et cartes', 1, 'forfait', 2300000]]), 'Émis', { conditions: CONDS[3] });
+    /* Port-Gentil */
+    b = bc(151, 'F-006', -19, -2, 'Élingues et manilles offshore certifiées — quai commercial B', 'Prestations, levage & transport', 'Budget maintenance courante', scaleLines('DA-' + Y + '-0120', 7540000), 'Partiellement reçu', { site: 'POG', daId: 'DA-' + Y + '-0120', consultationId: 'CO-' + Y + '-0048', historique: [{ date: d(-19), statut: 'Émis' }, { date: d(-18), statut: 'Confirmé' }] }); rec(b, -4, [0, 6], 'BL-MT-2290', 'Élingues certifiées attendues (certificats DNV en cours d\'émission).');
+    b = bc(152, 'F-001', -12, 6, 'Révision de la pompe de transfert — barge de soutage Mandji', 'Pièces navales & moteurs', 'Budget maintenance courante', L([['Révision de la pompe de transfert de soutage', 1, 'forfait', 4350000], ['Garniture mécanique de rechange', 2, 'u', 620000]]), 'Confirmé', { site: 'POG', lieu: 'Appontement de soutage — Port-Gentil', historique: [{ date: d(-12), statut: 'Émis' }, { date: d(-11), statut: 'Confirmé' }] });
+    b = bc(153, 'F-005', -24, -3, 'Flexibles eau douce alimentaires et raccords — poste d\'avitaillement', 'Amarrage & accastillage', 'Budget de fonctionnement', L([['Flexible eau douce alimentaire DN 65 (20 m)', 4, 'u', 420000, 'ART-1039'], ['Raccords symétriques DN 65 inox', 8, 'u', 95000]]), 'Émis', { site: 'POG' });
     BC.forEach(function (o) { if (!o.historique.some(function (h) { return h.statut === o.statut; }) && o.statut !== 'Émis') o.historique.push({ date: o.receptions.length ? o.receptions[o.receptions.length - 1].date : o.date, statut: o.statut }); });
 
     /* factures fournisseurs */
     function ff(n, bcId, ref, off, ech, statut, lignes, extra) {
       var o = BC.find(function (x) { return x.id === bcId; });
-      var f = { id: 'FF-' + Y + '-' + String(n).padStart(4, '0'), bcId: bcId, fournisseur: o.fournisseur, ref: ref, date: d(off), echeance: d(ech), statut: statut, lignes: lignes || o.lignes.map(function (l, i) { return { i: i, qte: l.qte, pu: l.pu }; }), historique: [{ date: d(off), action: 'Facture reçue et enregistrée', user: 'Matsanga Irène' }] };
+      var f = { id: 'FF-' + Y + '-' + String(n).padStart(4, '0'), site: o.site, bcId: bcId, fournisseur: o.fournisseur, ref: ref, date: d(off), echeance: d(ech), statut: statut, lignes: lignes || o.lignes.map(function (l, i) { return { i: i, qte: l.qte, pu: l.pu }; }), historique: [{ date: d(off), action: 'Facture reçue et enregistrée', user: o.site === 'POG' ? 'Boukandou Gisèle' : 'Matsanga Irène' }] };
       Object.assign(f, extra || {}); return f;
     }
     var FF = [
@@ -180,9 +221,12 @@
       ff(287, 'BC-' + Y + '-0138', 'SPG-FAC-771', -50, -5, 'Bon à payer', null, { bap: { par: STEP.daf.who, date: d(-40) } }),
       ff(288, 'BC-' + Y + '-0141', 'SPG-FAC-0342', -12, 18, 'À contrôler', [{ i: 0, qte: 10, pu: 195000 }, { i: 1, qte: 1, pu: 1250000 }, { i: 2, qte: 2, pu: 640000 }]),
       ff(289, 'BC-' + Y + '-0145', 'EMS-F-0619', -8, 22, 'À contrôler', [{ i: 0, qte: 42, pu: 14500 }, { i: 1, qte: 42, pu: 4800 }, { i: 2, qte: 1, pu: 650000 }]),
-      ff(290, 'BC-' + Y + '-0139', 'ESA-FA-1187', -20, 10, 'À contrôler', null)
+      ff(290, 'BC-' + Y + '-0139', 'ESA-FA-1187', -20, 10, 'À contrôler', null),
+      ff(291, 'BC-' + Y + '-0151', 'MT/1188', -3, 27, 'À contrôler', [{ i: 1, qte: 6, pu: 0 }])
     ];
+    var f151 = FF[7], b151 = BC.find(function (x) { return x.id === f151.bcId; }); f151.lignes[0].pu = b151.lignes[1].pu;
     var f139 = FF[6], b139 = BC.find(function (x) { return x.id === f139.bcId; }); f139.lignes = [{ i: 0, qte: 6, pu: b139.lignes[0].pu }, { i: 1, qte: 6, pu: b139.lignes[1].pu }];
+    FF.forEach(function (f) { if (f.site === 'POG' && f.bap) f.bap.par = stepWho('daf', 'POG'); });
     FF.forEach(function (f) { if (f.bap) f.historique.push({ date: f.bap.date, action: 'Bon à payer', user: f.bap.par }); if (f.paiement) f.historique.push({ date: f.paiement.date, action: 'Paiement ' + f.paiement.mode + ' — ' + f.paiement.ref, user: 'Matsanga Irène' }); });
 
     /* évaluation & conformité administrative des fournisseurs (collection commune F-001 à F-010) */
@@ -210,7 +254,12 @@
       var dt = new Date(E.TODAY.getFullYear(), E.TODAY.getMonth() - k, 1), mt = vals[11 - k], ww = w[k % 2], cats = {};
       CATS.forEach(function (c, j) { cats[c] = Math.round(mt * ww[j]); });
       if (mt > 1e9) cats['Travaux & génie civil'] += 500e6;
-      H.push({ id: 'H-' + E.iso(dt).slice(0, 7), mois: E.iso(dt).slice(0, 7), montant: E.sum(Object.keys(cats), function (c) { return cats[c]; }), cats: cats, commandes: 9 + (k * 5) % 9 });
+      /* répartition Owendo / Port-Gentil (environ 82 % / 18 %) */
+      [['OWE', 0.82], ['POG', 0.18]].forEach(function (p) {
+        var cs = {}; Object.keys(cats).forEach(function (c) { cs[c] = Math.round(cats[c] * p[1]); });
+        if (p[0] === 'POG') { cs['Sécurité, EPI & antipollution'] += Math.round(mt * 0.02); cs['Pièces navales & moteurs'] += Math.round(mt * 0.02); }
+        H.push({ id: 'H-' + p[0] + '-' + E.iso(dt).slice(0, 7), site: p[0], mois: E.iso(dt).slice(0, 7), montant: E.sum(Object.keys(cs), function (c) { return cs[c]; }), cats: cs, commandes: p[0] === 'OWE' ? 7 + (k * 5) % 8 : 2 + k % 3 });
+      });
     }
     return { da: DA, consultations: CO, bc: BC, facturesFournisseurs: FF, evalFournisseurs: EV, achatsHisto: H };
   }
@@ -268,21 +317,23 @@
     return list;
   }
   function economie(co) { if (co.statut !== 'Attribuée') return 0; var dv = co.devis.find(function (x) { return x.fournisseur === co.attributaire; }); return dv ? Math.max(0, co.estimation - dv.montant) : 0; }
-  function evalOf(id) { return S.get('evalFournisseurs', id) || { id: id, qualite: fr(id).note || 4, delais: fr(id).note || 4, hse: fr(id).note || 4, volumeHisto: 0, docs: [] }; }
+  function evalRaw(id) { return S.raw('evalFournisseurs').find(function (x) { return x.id === id; }); }
+  function evalOf(id) { return evalRaw(id) || { id: id, qualite: fr(id).note || 4, delais: fr(id).note || 4, hse: fr(id).note || 4, volumeHisto: 0, docs: [] }; }
   function evalScore(e) { return (e.qualite + e.delais + e.hse) / 3; }
   function docStatus(dc) { var j = E.daysBetween(today(), dc.expiration); return j < 0 ? { l: 'Expiré', t: 'red', j: j } : j <= 30 ? { l: 'Expire dans ' + j + ' j', t: 'orange', j: j } : { l: 'Valide', t: 'green', j: j }; }
   function frDocAlert(id) { var e = evalOf(id); return (e.docs || []).filter(function (dc) { return docStatus(dc).j <= 30; }); }
-  function volume(id) { return evalOf(id).volumeHisto + E.sum(bcs().filter(function (o) { return o.fournisseur === id && o.statut !== 'Annulé'; }), bcHT); }
+  function volume(id) { return (sc() ? 0 : evalOf(id).volumeHisto) + E.sum(bcs().filter(function (o) { return o.fournisseur === id && o.statut !== 'Annulé'; }), bcHT); }
   function months12() { var out = []; for (var k = 11; k >= 0; k--) { var dt = new Date(E.TODAY.getFullYear(), E.TODAY.getMonth() - k, 1); out.push({ key: E.iso(dt).slice(0, 7), label: E.MOIS[dt.getMonth()] + (dt.getMonth() === 0 || k === 11 ? ' ' + String(dt.getFullYear()).slice(2) : '') }); } return out; }
   function engagementsByMonth() {
-    var H = {}; S.all('achatsHisto').forEach(function (h) { H[h.mois] = h; });
-    return months12().map(function (m) { var v = H[m.key] ? H[m.key].montant : E.sum(bcs().filter(function (o) { return o.statut !== 'Annulé' && mkey(o.date) === m.key; }), bcHT); return { label: m.label, key: m.key, v: v }; });
+    var H = histoMois();
+    return months12().map(function (m) { var v = H[m.key] != null ? H[m.key] : E.sum(bcs().filter(function (o) { return o.statut !== 'Annulé' && mkey(o.date) === m.key; }), bcHT); return { label: m.label, key: m.key, v: v }; });
   }
+  function histoMois() { var H = {}; S.all('achatsHisto').forEach(function (h) { H[h.mois] = (H[h.mois] || 0) + (h.montant || 0); }); return H; }
   function delaiMoyen() { var l = das().filter(function (o) { return o.bcId && S.get('bc', o.bcId); }); if (!l.length) return 0; return E.sum(l, function (o) { return E.daysBetween(o.date, S.get('bc', o.bcId).date); }) / l.length; }
 
   /* ------------------------------------------------------------------ pièces imprimables */
-  function docHead(title, num, date, extra) {
-    return '<div class="doc__head"><div class="fin-doc-brand"><img src="../assets/img/logo.png" alt="GPM"><div><b>Gabon Port Management</b><span>Zone portuaire d\'Owendo · B.P. 394 Libreville, Gabon</span><span>Tél. 011 70 32 74 · info.gpm@gpmgabon.com</span><span>Service Achats & magasin</span></div></div>' +
+  function docHead(title, num, date, extra, site) {
+    return '<div class="doc__head"><div class="fin-doc-brand"><img src="../assets/img/logo.png" alt="GPM"><div><b>Gabon Port Management</b><span>' + (site === 'POG' ? 'Agence de Port-Gentil · zone portuaire de Port-Gentil, Gabon' : 'Zone portuaire d\'Owendo · B.P. 394 Libreville, Gabon') + '</span><span>Tél. 011 70 32 74 · info.gpm@gpmgabon.com</span><span>Service Achats & magasin</span></div></div>' +
       '<div class="fin-doc-title"><h4>' + esc(title) + '</h4><div>N° <b>' + esc(num) + '</b></div><div>Date : ' + F.date(date) + '</div>' + (extra || '') + '</div></div>';
   }
   function printModal(m) {
@@ -291,24 +342,24 @@
   }
   function bcDocHTML(o) {
     var f = fr(o.fournisseur), e = evalOf(o.fournisseur), ht = bcHT(o), tva = Math.round(ht * TVA), ttc = ht + tva, niv = niveaux(ht);
-    return '<div class="doc fin-doc">' + docHead('BON DE COMMANDE', o.id, o.date, '<div>Réf. : ' + esc(o.daId || 'Commande directe') + (o.consultationId ? ' · ' + esc(o.consultationId) : '') + '</div>') +
+    return '<div class="doc fin-doc">' + docHead('BON DE COMMANDE', o.id, o.date, '<div>Réf. : ' + esc(o.daId || 'Commande directe') + (o.consultationId ? ' · ' + esc(o.consultationId) : '') + '</div>', siteOf(o)) +
       '<div class="fin-doc-parties"><div><small>Fournisseur</small><b>' + esc(f.nom) + '</b><br>' + esc(f.domaine) + '<br>' + esc(f.ville) + '<br>' + esc(e.nif || '') + '<br>' + esc(f.contact || '') + '</div>' +
-      '<div><small>Livraison & facturation</small>' + esc(o.lieu) + '<br>Livraison prévue : <b>' + F.date(o.livraisonPrevue) + '</b><br>Imputation : ' + esc(o.imputation || '—') + '<br>Acheteur : ' + esc(E.empName(o.acheteur)) + '</div></div>' +
+      '<div><small>Livraison & facturation</small>' + esc(o.lieu) + '<br>Livraison prévue : <b>' + F.date(o.livraisonPrevue) + '</b><br>Imputation : ' + esc(o.imputation || '—') + '<br>Acheteur : ' + esc(empNom(o.acheteur)) + '</div></div>' +
       '<div class="tbl-wrap"><table class="fin-doc-tbl"><thead><tr><th>#</th><th>Désignation</th><th class="num">Qté</th><th>Unité</th><th class="num">PU HT</th><th class="num">Montant HT</th></tr></thead><tbody>' +
       o.lignes.map(function (l, i) { return '<tr><td>' + (i + 1) + '</td><td>' + esc(l.designation) + (l.articleId ? ' <span class="muted small">(' + esc(l.articleId) + ')</span>' : '') + '</td><td class="num">' + F.num(l.qte) + '</td><td>' + esc(l.unite) + '</td><td class="num">' + F.num(l.pu) + '</td><td class="num">' + F.num(l.qte * l.pu) + '</td></tr>'; }).join('') +
       '</tbody></table></div>' +
       '<div class="fin-doc-tot"><div><span>Total HT</span><b>' + F.money(ht) + '</b></div><div><span>TVA 18 %</span><b>' + F.money(tva) + '</b></div><div class="ttc"><span>Total TTC</span><span>' + F.money(ttc) + '</span></div></div>' +
       '<div class="fin-doc-words">Arrêté le présent bon de commande à la somme de : <b>' + esc(enLettres(ttc)) + ' francs CFA TTC</b>.</div>' +
-      '<div class="fin-doc-cond"><b>Conditions particulières</b><ul><li>Paiement : ' + esc(o.conditions) + ', par virement bancaire.</li><li>Livraison DAP Owendo ou Port-Gentil (Incoterms 2020) au lieu indiqué, accès à la zone portuaire sur badge ISPS, accompagnée du bon de livraison et des certificats matière / de conformité.</li><li>Pénalités de retard : 0,5 % du montant HT par jour calendaire, plafonnées à 10 %.</li><li>Garantie : 12 mois à compter de la mise en service, 18 mois au plus après livraison.</li><li>Toute facture doit rappeler le numéro du présent bon de commande ; les attestations fiscale et CNSS du fournisseur doivent être en cours de validité.</li></ul></div>' +
-      '<div class="fin-doc-sign"><div>L\'acheteur<br><b>' + esc(E.empName(o.acheteur)) + '</b><em>✓ Émis le ' + F.dateShort(o.date) + '</em></div><div>Chef du service Achats<br><b>' + esc(STEP.chef.who) + '</b><em>✓ Visé</em></div>' +
-      (niv.indexOf('daf') >= 0 ? '<div>Directrice administrative et financière<br><b>' + esc(STEP.daf.who) + '</b><em>✓ Visé</em></div>' : '') + (niv.indexOf('dg') >= 0 ? '<div>Direction générale<br><b>Le Directeur général</b><em>✓ Visé</em></div>' : '') + '</div>' +
-      '<div class="fin-doc-foot">Gabon Port Management (GPM) · Zone portuaire d\'Owendo, B.P. 394 Libreville · Document généré par l\'espace de gestion (démonstration)</div></div>';
+      '<div class="fin-doc-cond"><b>Conditions particulières</b><ul><li>Paiement : ' + esc(o.conditions) + ', par virement bancaire.</li><li>Livraison DAP ' + (siteOf(o) === 'POG' ? 'Port-Gentil' : 'Owendo') + ' (Incoterms 2020) au lieu indiqué, accès à la zone portuaire sur badge ISPS, accompagnée du bon de livraison et des certificats matière / de conformité.</li><li>Pénalités de retard : 0,5 % du montant HT par jour calendaire, plafonnées à 10 %.</li><li>Garantie : 12 mois à compter de la mise en service, 18 mois au plus après livraison.</li><li>Toute facture doit rappeler le numéro du présent bon de commande ; les attestations fiscale et CNSS du fournisseur doivent être en cours de validité.</li></ul></div>' +
+      '<div class="fin-doc-sign"><div>L\'acheteur<br><b>' + esc(empNom(o.acheteur)) + '</b><em>✓ Émis le ' + F.dateShort(o.date) + '</em></div><div>Chef du service Achats<br><b>' + esc(stepWho('chef', siteOf(o))) + '</b><em>✓ Visé</em></div>' +
+      (niv.indexOf('daf') >= 0 ? '<div>' + (siteOf(o) === 'POG' ? 'Responsable administrative et financière' : 'Directrice administrative et financière') + '<br><b>' + esc(stepWho('daf', siteOf(o))) + '</b><em>✓ Visé</em></div>' : '') + (niv.indexOf('dg') >= 0 ? '<div>Direction générale<br><b>Le Directeur général</b><em>✓ Visé</em></div>' : '') + '</div>' +
+      '<div class="fin-doc-foot">Gabon Port Management (GPM) · ' + (siteOf(o) === 'POG' ? 'Agence de Port-Gentil' : 'Zone portuaire d\'Owendo, B.P. 394 Libreville') + ' · Document généré par l\'espace de gestion (démonstration)</div></div>';
   }
 
   /* ------------------------------------------------------------------ éditeur de lignes */
   function linesEditor(id, lines, opt) {
     opt = opt || {};
-    var arts = opt.articles && S.has('articles') ? S.all('articles') : null;
+    var arts = opt.articles && S.has('articles') ? S.all('articles').filter(function (a) { return !opt.site || siteOf(a) === opt.site; }) : null;
     function row(l) {
       return '<div class="fin-le__row"><input class="input" data-f="designation" placeholder="Désignation de l\'article ou de la prestation" value="' + esc(l.designation || '') + '">' +
         '<input class="input" data-f="qte" type="number" min="0" step="any" placeholder="Qté" value="' + (l.qte != null ? l.qte : '') + '">' +
@@ -340,7 +391,14 @@
       });
       upd();
     }
-    return { html: html, bind: bind, read: read, total: total };
+    /* vue globale : changement de site -> articles du magasin de ce site */
+    function setSite(site) {
+      if (!opt.articles || !S.has('articles')) return; opt.site = site;
+      var list = S.raw('articles').filter(function (a) { return siteOf(a) === site; });
+      E.$$('[data-f=articleId]', el()).forEach(function (sel) { var v = sel.value; sel.innerHTML = '<option value="">— Article du magasin (facultatif : entrée en stock à la réception) —</option>' + list.map(function (a) { return '<option value="' + a.id + '"' + (a.id === v ? ' selected' : '') + '>' + esc(a.id + ' · ' + a.designation) + '</option>'; }).join(''); });
+      arts = list;
+    }
+    return { html: html, bind: bind, read: read, total: total, setSite: setSite };
   }
   function circuitHTML(montant) {
     var n = niveaux(montant), labels = ['Demande émise'].concat(n.map(function (k) { return STEP[k].label; })).concat(['Validée']);
@@ -377,7 +435,7 @@
     if (st.tab === 'bc' && canAchats()) actions += '<button class="btn primary" data-act="new-bc">' + ic('plus') + 'Nouveau bon de commande</button>';
     if (st.tab === 'factures') actions += '<button class="btn primary" data-act="new-ff">' + ic('plus') + 'Enregistrer une facture</button>';
     if (['da', 'bc', 'factures', 'consultations', 'fournisseurs'].indexOf(st.tab) >= 0) actions += '<button class="btn" data-act="csv">' + ic('download') + 'Export CSV</button>';
-    v.innerHTML = '<div class="fin-root" id="ach-root"><div class="fin-head"><div><h2>Achats & approvisionnements</h2><p>Chaîne procure-to-pay : demande, validation, consultation, commande, réception, facture, paiement.</p></div>' +
+    v.innerHTML = '<div class="fin-root" id="ach-root"><div class="fin-head"><div><h2>Achats & approvisionnements' + (sc() ? ' — ' + esc(sc() === 'POG' ? 'Port-Gentil' : 'Owendo') : '') + '</h2><p>' + (sc() === 'POG' ? 'Achats de l’agence de Port-Gentil · livraisons au magasin de Port-Gentil. ' : sc() === 'OWE' ? 'Achats du port d’Owendo · livraisons au magasin central d’Owendo. ' :'Vue consolidée des achats d’Owendo et de Port-Gentil. ') + 'Chaîne procure-to-pay : demande, validation, consultation, commande, réception, facture, paiement.</p></div>' +
       '<div class="row"><span class="fin-who">' + U.avatar(u.name || '?', u.color, true) + '<span><b>' + esc(u.name || '') + '</b> · ' + esc(role) + '</span></span>' + actions + '</div></div>' +
       U.tabs(TABS.map(function (t) { return { k: t.k, l: t.l, n: t.k === 'da' ? c.da || null : t.k === 'consultations' ? c.co || null : t.k === 'bc' ? (c.bc || null) : t.k === 'receptions' ? c.rc || null : t.k === 'factures' ? c.ff || null : null }; }), st.tab, function (k) { E.go(MOD + '/' + k); }) +
       '<div id="ach-body"></div></div>';
@@ -432,14 +490,14 @@
     var flowH = '<div class="card"><div class="card__h"><h3>Chaîne procure-to-pay</h3><span class="sub">cliquez sur une étape pour traiter les pièces</span></div><div class="card__b"><div class="fin-flow">' + flow.map(function (x) { return '<button class="fin-flow__s' + (x.n && (x.k === 'da' || x.l === 'Factures à contrôler') ? ' hot' : '') + '" style="--c:' + x.c + '" data-act="go" data-k="' + x.k + '"><small>' + esc(x.l) + '</small><b>' + x.n + '</b><span>' + esc(x.s) + '</span></button>'; }).join('') + '</div></div></div>';
     var em = engagementsByMonth();
     var catTot = {}; S.all('achatsHisto').forEach(function (h) { Object.keys(h.cats).forEach(function (c) { catTot[c] = (catTot[c] || 0) + h.cats[c]; }); });
-    bcs().forEach(function (o) { if (o.statut !== 'Annulé' && !S.get('achatsHisto', 'H-' + mkey(o.date))) catTot[o.categorie || 'Autres'] = (catTot[o.categorie || 'Autres'] || 0) + bcHT(o); });
+    bcs().forEach(function (o) { if (o.statut !== 'Annulé' && histoMois()[mkey(o.date)] == null) catTot[o.categorie || 'Autres'] = (catTot[o.categorie || 'Autres'] || 0) + bcHT(o); });
     var cats = Object.keys(catTot).map(function (k) { return { label: k, value: catTot[k] }; }).sort(function (a, b) { return b.value - a.value; });
     var top = cats.slice(0, 6); if (cats.length > 6) top.push({ label: 'Autres', value: E.sum(cats.slice(6), 'value'), color: '#94a3b8' });
     var totalEng = E.sum(em, 'v');
     var charts = '<div class="grid g-2-1"><div class="card"><div class="card__h"><h3>Engagements par mois</h3><span class="sub">bons de commande émis · 12 derniers mois · ' + M(totalEng) + '</span></div><div class="card__b">' + U.bars({ labels: em.map(function (x) { return x.label; }), series: [{ name: 'Engagé', values: em.map(function (x) { return x.v; }), color: '#163b75' }], money: true, height: 230 }) + '</div></div>' +
       '<div class="card"><div class="card__h"><h3>Dépenses par catégorie</h3><span class="sub">12 mois</span></div><div class="card__b">' + U.donut(top, { money: true, center: F.short(totalEng), sub: 'FCFA HT' }) + '</div></div></div>';
     var tops = S.all('fournisseurs').map(function (x) { return { f: x, v: volume(x.id) }; }).sort(function (a, b) { return b.v - a.v; }).slice(0, 6), maxV = tops.length ? tops[0].v : 1;
-    var topH = '<div class="card"><div class="card__h"><h3>Top fournisseurs</h3><span class="sub">volume d\'achats ' + Y + '</span><span class="spacer"></span><button class="btn sm ghost" data-act="go" data-k="fournisseurs">Tous</button></div><div class="list">' + tops.map(function (t) { return '<div class="list__item" data-act="four" data-id="' + t.f.id + '" style="cursor:pointer">' + U.avatar(t.f.nom, null, true) + '<div class="list__body"><b>' + esc(t.f.nom) + '</b><div class="small muted">' + esc(t.f.domaine) + '</div>' + U.progress(t.v / maxV * 100) + '</div><div class="right"><b>' + F.short(t.v) + '</b><div class="small muted">FCFA</div></div></div>'; }).join('') + '</div></div>';
+    var topH = '<div class="card"><div class="card__h"><h3>Top fournisseurs</h3><span class="sub">' + (sc() ? 'commandes ' + Y + ' du site' : 'volume d\'achats ' + Y) + '</span><span class="spacer"></span><button class="btn sm ghost" data-act="go" data-k="fournisseurs">Tous</button></div><div class="list">' + tops.map(function (t) { return '<div class="list__item" data-act="four" data-id="' + t.f.id + '" style="cursor:pointer">' + U.avatar(t.f.nom, null, true) + '<div class="list__body"><b>' + esc(t.f.nom) + '</b><div class="small muted">' + esc(t.f.domaine) + '</div>' + U.progress(t.v / maxV * 100) + '</div><div class="right"><b>' + F.short(t.v) + '</b><div class="small muted">FCFA</div></div></div>'; }).join('') + '</div></div>';
     var al = [];
     late.forEach(function (o) { al.push({ t: 'red', i: 'clock', h: o.id + ' · livraison en retard de ' + retard(o) + ' j', s: frNom(o.fournisseur) + ' · ' + o.objet, act: 'bc', id: o.id }); });
     S.all('fournisseurs').forEach(function (x) { frDocAlert(x.id).forEach(function (dc) { var s = docStatus(dc); al.push({ t: s.t, i: 'file', h: x.nom + ' · ' + dc.type, s: s.l + ' (' + F.date(dc.expiration) + ')', act: 'four', id: x.id }); }); });
@@ -452,7 +510,7 @@
   /* ------------------------------------------------------------------ demandes d'achat */
   var DA_COLS = [
     { label: 'N°', render: function (o) { return '<span class="mono fin-strong">' + o.id + '</span><span class="fin-sub">' + F.date(o.date) + '</span>'; }, csv: function (o) { return o.id; } },
-    { label: 'Objet', render: function (o) { return '<span class="fin-strong">' + esc(o.objet) + '</span><span class="fin-sub">' + esc(E.empName(o.demandeur)) + ' · ' + esc(E.dirName(o.direction)) + '</span>'; }, csv: function (o) { return o.objet; } },
+    { label: 'Objet', render: function (o) { return '<span class="fin-strong">' + esc(o.objet) + '</span><span class="fin-sub">' + esc(empNom(o.demandeur)) + ' · ' + esc(E.dirName(o.direction)) + '</span>'; }, csv: function (o) { return o.objet; } },
     { label: 'Montant estimé', num: true, render: function (o) { return '<b>' + F.money(o.montant) + '</b>'; }, csv: function (o) { return o.montant; } },
     { label: 'Urgence', render: function (o) { return B(o.urgence); }, csv: function (o) { return o.urgence; } },
     { label: 'Circuit', render: function (o) { var n = niveaux(o.montant), ok = o.visas.filter(function (v) { return v.decision === 'Visé'; }).map(function (v) { return v.etape; }), nx = daNext(o); return '<span class="fin-dots">' + n.map(function (k) { return '<i class="' + (ok.indexOf(k) >= 0 ? 'ok' : o.statut === 'Refusée' && k === nx ? 'ko' : (o.statut === 'En validation' || o.statut === 'Complément demandé') && k === nx ? 'cur' : '') + '" title="' + STEP[k].label + '"></i>'; }).join('') + '</span> <span class="small muted">' + (o.statut === 'En validation' && nx ? 'Visa ' + STEP[nx].label.toLowerCase() : ok.length + '/' + n.length + ' visa(s)') + '</span>'; }, csv: function (o) { return o.visas.length; } },
@@ -460,17 +518,17 @@
   ];
   function filteredDA() {
     var s = st.f.daS || 'Toutes', q = E.norm(st.f['da-q'] || ''), dir = st.f.daDir || '';
-    return das().filter(function (o) { return (s === 'Toutes' || (s === 'À viser par moi' ? canVisa(o) : o.statut === s)) && (!dir || o.direction === dir) && (!q || E.norm(o.id + ' ' + o.objet + ' ' + E.empName(o.demandeur) + ' ' + o.imputation).indexOf(q) >= 0); }).sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); });
+    return das().filter(function (o) { return (s === 'Toutes' || (s === 'À viser par moi' ? canVisa(o) : o.statut === s)) && siteOk(o) && (!dir || o.direction === dir) && (!q || E.norm(o.id + ' ' + o.objet + ' ' + empNom(o.demandeur) + ' ' + o.imputation).indexOf(q) >= 0); }).sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); });
   }
   function vDA(body) {
     var mine = das().filter(canVisa).length;
     var stats = ['Toutes'].concat(mine ? ['À viser par moi'] : []).concat(['En validation', 'Complément demandé', 'Validée', 'En consultation', 'Commandée', 'Refusée', 'Brouillon']);
     body.innerHTML = (mine ? '<div class="alert tone-orange" style="margin-bottom:14px">' + ic('alert') + '<div><b>' + mine + ' demande(s) attendent votre visa.</b> Ouvrez une demande pour la valider, la refuser ou demander un complément.</div></div>' : '') +
-      '<div class="card"><div class="card__b"><div class="filters">' + searchBox('da-q', 'Rechercher (n°, objet, demandeur, imputation)') +
+      '<div class="card"><div class="card__b"><div class="filters">' + searchBox('da-q', 'Rechercher (n°, objet, demandeur, imputation)') + siteFilter() +
       '<select class="select" id="da-dir"><option value="">Toutes les directions</option>' + S.all('directions').map(function (x) { return '<option value="' + x.id + '"' + (st.f.daDir === x.id ? ' selected' : '') + '>' + esc(x.nom) + '</option>'; }).join('') + '</select></div>' +
       chips('daS', stats, st.f.daS || 'Toutes') + '</div><div id="da-list"></div></div>';
-    function list() { var rows = filteredDA(), p = paged('da', rows); body.querySelector('#da-list').innerHTML = U.table(DA_COLS, p.rows, { onRow: function (o) { openDA(o.id); }, empty: 'Aucune demande pour ces critères', footer: function () { return '<td colspan="2">' + rows.length + ' demande(s)</td><td class="num">' + F.money(E.sum(rows, 'montant')) + '</td><td colspan="3"></td>'; } }) + p.more; }
-    list(); bindSearch(body, 'da-q', list);
+    function list() { var rows = filteredDA(), p = paged('da', rows); body.querySelector('#da-list').innerHTML = U.table(withSiteCol(DA_COLS), p.rows, { onRow: function (o) { openDA(o.id); }, empty: 'Aucune demande pour ces critères', footer: function () { return '<td colspan="' + (sc() ? 2 : 3) + '">' + rows.length + ' demande(s)</td><td class="num">' + F.money(E.sum(rows, 'montant')) + '</td><td colspan="3"></td>'; } }) + p.more; }
+    list(); bindSearch(body, 'da-q', list); bindSiteFilter(body, list);
     body.querySelector('#da-dir').onchange = function (e) { st.f.daDir = e.target.value; list(); };
   }
 
@@ -484,18 +542,18 @@
     var who = '';
     if (o.statut === 'En validation' && nx) {
       who = canVisa(o) ? '<div class="alert tone-yellow">' + ic('info') + '<div><b>Votre visa est attendu</b> au titre de : ' + esc(STEP[nx].label) + (isAdmin() && PROFILE_STEP.admin !== nx ? ' (par délégation de la Direction générale)' : '') + '.</div></div>'
-        : '<div class="alert tone-blue">' + ic('clock') + '<div>En attente du visa : <b>' + esc(STEP[nx].label) + '</b> (' + esc(STEP[nx].who) + '). <span class="muted">Démo : connectez-vous avec le profil « ' + STEP[nx].login + ' » pour viser.</span></div></div>';
+        : '<div class="alert tone-blue">' + ic('clock') + '<div>En attente du visa : <b>' + esc(STEP[nx].label) + '</b> (' + esc(stepWho(nx, siteOf(o))) + '). <span class="muted">Démo : connectez-vous avec le profil « ' + stepLogin(nx, siteOf(o)) + ' » pour viser.</span></div></div>';
     } else if (o.statut === 'Complément demandé') who = '<div class="alert tone-yellow">' + ic('alert') + '<div><b>Complément demandé</b> — ' + esc((o.visas.filter(function (v) { return v.decision === 'Complément'; }).pop() || {}).commentaire || '') + '</div></div>';
     else if (o.statut === 'Refusée') who = '<div class="alert tone-red">' + ic('x') + '<div><b>Demande refusée</b> — ' + esc((o.visas.filter(function (v) { return v.decision === 'Refusé'; }).pop() || {}).commentaire || '') + '</div></div>';
     else if (o.statut === 'Validée') who = '<div class="alert tone-green">' + ic('check') + '<div><b>Demande validée.</b> ' + (canAchats() ? 'Lancez la consultation des fournisseurs ou passez une commande directe (marché cadre).' : 'Le service Achats va lancer la consultation.') + '</div></div>';
-    var tl = '<div class="timeline"><div class="tl-item done"><b>Demande émise</b><span>' + esc(E.empName(o.demandeur)) + ' · ' + F.date(o.date) + '</span></div>' +
+    var tl = '<div class="timeline"><div class="tl-item done"><b>Demande émise</b><span>' + esc(empNom(o.demandeur)) + ' · ' + F.date(o.date) + '</span></div>' +
       o.visas.map(function (v) { return '<div class="tl-item ' + (v.decision === 'Visé' || v.decision === 'Resoumise' ? 'done' : v.decision === 'Refusé' ? 'rejected' : 'current') + '"><b>' + esc(v.decision === 'Resoumise' ? 'Resoumise avec complément' : (STEP[v.etape] ? STEP[v.etape].label : '') + ' — ' + v.decision) + '</b><span>' + esc(v.user) + ' · ' + F.datetime(v.date) + '</span>' + (v.commentaire ? '<div class="small" style="margin-top:3px">« ' + esc(v.commentaire) + ' »</div>' : '') + '</div>'; }).join('') +
-      (o.statut === 'En validation' && nx ? '<div class="tl-item current"><b>' + esc(STEP[nx].label) + ' — en attente</b><span>' + esc(STEP[nx].who) + '</span></div>' : '') + '</div>';
+      (o.statut === 'En validation' && nx ? '<div class="tl-item current"><b>' + esc(STEP[nx].label) + ' — en attente</b><span>' + esc(stepWho(nx, siteOf(o))) + '</span></div>' : '') + '</div>';
     var links = [];
     if (o.consultationId) links.push('<button class="btn sm" data-l="co" data-id="' + o.consultationId + '">' + ic('layers') + 'Consultation ' + o.consultationId + '</button>');
     if (o.bcId) links.push('<button class="btn sm" data-l="bc" data-id="' + o.bcId + '">' + ic('cart') + 'Bon de commande ' + o.bcId + '</button>');
     var bodyH = '<div class="row" style="margin-bottom:12px">' + B(o.statut) + B(o.urgence) + '<span class="badge tone-grey plain">' + esc(o.categorie) + '</span><span class="spacer"></span><span class="fin-big">' + F.money(o.montant) + '</span></div>' + stepsH + who +
-      '<div class="grid g2 stack-m" style="margin-top:14px"><dl class="kv"><dt>Demandeur</dt><dd>' + esc(E.empName(o.demandeur)) + '</dd><dt>Direction</dt><dd>' + esc(E.dirName(o.direction)) + '</dd><dt>Date de la demande</dt><dd>' + F.date(o.date) + '</dd><dt>Besoin souhaité le</dt><dd>' + F.date(o.besoin) + '</dd><dt>Imputation</dt><dd>' + esc(o.imputation) + '</dd><dt>Justification</dt><dd>' + esc(o.justification) + '</dd></dl>' +
+      '<div class="grid g2 stack-m" style="margin-top:14px"><dl class="kv"><dt>Demandeur</dt><dd>' + esc(empNom(o.demandeur)) + '</dd><dt>Direction</dt><dd>' + esc(E.dirName(o.direction)) + '</dd><dt>Date de la demande</dt><dd>' + F.date(o.date) + '</dd><dt>Besoin souhaité le</dt><dd>' + F.date(o.besoin) + '</dd><dt>Imputation</dt><dd>' + esc(o.imputation) + '</dd><dt>Justification</dt><dd>' + esc(o.justification) + '</dd></dl>' +
       '<div><div class="fin-sect">' + ic('check') + 'Visas</div>' + tl + '</div></div>' +
       '<div class="fin-sect">' + ic('list') + 'Lignes de la demande</div>' + U.table([{ label: 'Désignation', render: function (l) { return esc(l.designation) + (l.articleId ? ' <span class="small muted mono">' + esc(l.articleId) + '</span>' : ''); } }, { label: 'Qté', num: true, render: function (l) { return F.num(l.qte) + ' ' + esc(l.unite); } }, { label: 'PU estimé', num: true, render: function (l) { return F.money(l.pu); } }, { label: 'Montant', num: true, render: function (l) { return '<b>' + F.money(l.qte * l.pu) + '</b>'; } }], o.lignes, { footer: function () { return '<td colspan="3">Total estimé HT</td><td class="num">' + F.money(o.montant) + '</td>'; } }) +
       (links.length ? '<div class="row" style="margin-top:12px">' + links.join('') + '</div>' : '');
@@ -511,7 +569,7 @@
       acts.push({ label: 'Lancer la consultation', cls: 'primary', icon: 'layers', onClick: function (close) { close(); launchCO(o.id); } });
     }
     acts.unshift({ label: 'Fermer' });
-    var m = U.modal({ title: o.id + ' · ' + o.objet, sub: 'Demande d\'achat · ' + esc(E.dirName(o.direction)), size: 'lg', body: bodyH, actions: acts, onClose: fromUrl ? afterClose : null });
+    var m = U.modal({ title: o.id + ' · ' + o.objet, sub: 'Demande d\'achat · ' + esc(E.dirName(o.direction)) + (sc() ? '' : ' · ' + SITE_L[siteOf(o)]), size: 'lg', body: bodyH, actions: acts, onClose: fromUrl ? afterClose : null });
     m.body.addEventListener('click', function (e) { var b = e.target.closest('[data-l]'); if (!b) return; m.close(); if (b.dataset.l === 'co') openCO(b.dataset.id); else openBC(b.dataset.id); });
   }
   function visa(o, decision, closeDetail) {
@@ -542,26 +600,37 @@
     } });
   }
   function newDA() {
-    var me = myEmp() || empIdByName('Mbina');
+    /* espace de site : DA du site, demandeurs du site ; vue globale : choix du site, puis des demandeurs de ce site */
+    var site0 = sc() || 'OWE';
+    function empsOf(site) { return S.raw('employes').filter(function (e) { return e.statut !== 'Sorti' && (e.site || 'OWE') === site; }); }
+    var me = myEmp(); if (!me || !empsOf(site0).some(function (e) { return e.id === me; })) me = (empsOf(site0)[0] || {}).id || '';
     var fields = [
-      { name: 'objet', label: 'Objet de la demande', required: true, full: true, placeholder: 'Ex. : Garnitures mécaniques pompes P-205' },
-      { name: 'demandeur', label: 'Demandeur', type: 'select', options: S.all('employes').map(function (e) { return { v: e.id, l: e.nom + ' — ' + e.poste }; }), value: me },
-      { name: 'direction', label: 'Direction', type: 'select', options: E.options('directions'), value: (E.emp(me) || {}).direction || 'TECH' },
+      { name: 'objet', label: 'Objet de la demande', required: true, full: true, placeholder: site0 === 'POG' ? 'Ex. : Joints de raccord de soutage — barge Mandji' : 'Ex. : Garnitures mécaniques pompes P-205' },
+      sc() ? null : { name: 'site', label: 'Site', type: 'select', options: [{ v: 'OWE', l: 'Libreville (Owendo)' }, { v: 'POG', l: 'Port-Gentil' }], value: site0 },
+      { name: 'demandeur', label: 'Demandeur', type: 'select', options: empsOf(site0).map(function (e) { return { v: e.id, l: e.nom + ' — ' + e.poste }; }), value: me },
+      { name: 'direction', label: 'Direction', type: 'select', options: E.options('directions'), value: (S.raw('employes').find(function (e) { return e.id === me; }) || {}).direction || 'TECH' },
       { name: 'categorie', label: 'Catégorie d\'achat', type: 'select', options: CATS },
-      { name: 'imputation', label: 'Imputation budgétaire', type: 'select', options: imputations() },
+      { name: 'imputation', label: 'Imputation budgétaire', type: 'select', options: imputations(site0) },
       { name: 'urgence', label: 'Urgence', type: 'select', options: URG },
       { name: 'besoin', label: 'Date de besoin', type: 'date', value: d(30) },
       { name: 'justification', label: 'Justification du besoin', type: 'textarea', required: true, placeholder: 'Contexte technique, risque en cas de non-achat, référence de l\'OT…' }
-    ];
+    ].filter(Boolean);
     var le = linesEditor('da-le', [], { onChange: function (t) { var c = document.getElementById('da-circ'); if (c) c.innerHTML = circuitHTML(t); } });
-    var m = U.modal({ title: 'Nouvelle demande d\'achat', sub: 'Le circuit de validation s\'adapte automatiquement au montant estimé', size: 'lg', body: U.form(fields) + le.html + '<div id="da-circ"></div>',
+    var m = U.modal({ title: 'Nouvelle demande d\'achat', sub: (sc() ? E.SPACES[sc()].court + ' · ' : '') + 'Le circuit de validation s\'adapte automatiquement au montant estimé', size: 'lg', body: U.form(fields) + le.html + '<div id="da-circ"></div>',
       actions: [{ label: 'Annuler' }, { label: 'Enregistrer en brouillon', icon: 'file', onClick: function (c, el) { save(c, el, true); } }, { label: 'Soumettre au circuit', cls: 'primary', icon: 'send', onClick: function (c, el) { save(c, el, false); } }] });
     le.bind();
-    m.el.querySelector('#f_demandeur').addEventListener('change', function (e) { var em = E.emp(e.target.value); if (em) m.el.querySelector('#f_direction').value = em.direction; });
+    function syncDir() { var em = S.raw('employes').find(function (x) { return x.id === m.el.querySelector('#f_demandeur').value; }); if (em) m.el.querySelector('#f_direction').value = em.direction; }
+    m.el.querySelector('#f_demandeur').addEventListener('change', syncDir);
+    var ss = m.el.querySelector('#f_site');
+    if (ss) ss.onchange = function () {
+      m.el.querySelector('#f_demandeur').innerHTML = empsOf(ss.value).map(function (e) { return '<option value="' + e.id + '">' + esc(e.nom + ' — ' + e.poste) + '</option>'; }).join('');
+      m.el.querySelector('#f_imputation').innerHTML = imputations(ss.value).map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('');
+      syncDir();
+    };
     function save(close, el, draft) {
       var v = U.readForm(el); if (!v) return; var lignes = le.read();
       if (!lignes.length) { U.toast('Ajoutez au moins une ligne (désignation et quantité).', 'err'); return; }
-      var o = { id: nextId('da', 'DA'), date: today(), demandeur: v.demandeur, direction: v.direction, objet: v.objet, categorie: v.categorie, imputation: v.imputation, urgence: v.urgence, besoin: v.besoin, justification: v.justification, lignes: lignes, montant: E.sum(lignes, function (l) { return l.qte * l.pu; }), statut: draft ? 'Brouillon' : 'En validation', visas: [] };
+      var o = { id: nextId('da', 'DA'), site: sc() || v.site || 'OWE', date: today(), demandeur: v.demandeur, direction: v.direction, objet: v.objet, categorie: v.categorie, imputation: v.imputation, urgence: v.urgence, besoin: v.besoin, justification: v.justification, lignes: lignes, montant: E.sum(lignes, function (l) { return l.qte * l.pu; }), statut: draft ? 'Brouillon' : 'En validation', visas: [] };
       S.add('da', o); E.log('Création DA', o.id + ' · ' + o.objet + ' · ' + M(o.montant), MOD);
       if (!draft) E.notify('Nouvelle DA à viser : ' + o.id, o.objet + ' · ' + M(o.montant), '#/achats/da/' + o.id, 'orange');
       close(); U.toast(draft ? 'Brouillon enregistré' : 'Demande ' + o.id + ' soumise — circuit : ' + niveaux(o.montant).map(function (k) { return STEP[k].label; }).join(' → '));
@@ -574,7 +643,7 @@
   function vCO(body) {
     var aLancer = das().filter(function (o) { return o.statut === 'Validée'; });
     var rows = cos().slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
-    var s = st.f.coS || 'Toutes'; rows = rows.filter(function (c) { return s === 'Toutes' || c.statut === s; });
+    var s = st.f.coS || 'Toutes'; rows = rows.filter(function (c) { return siteOk(c) && (s === 'Toutes' || c.statut === s); });
     var cols = [
       { label: 'N°', render: function (c) { return '<span class="mono fin-strong">' + c.id + '</span><span class="fin-sub">' + esc(c.mode) + '</span>'; }, csv: function (c) { return c.id; } },
       { label: 'Objet', render: function (c) { return '<span class="fin-strong">' + esc(c.objet) + '</span><span class="fin-sub">' + c.daId + ' · estimé ' + M(c.estimation) + '</span>'; }, csv: function (c) { return c.objet; } },
@@ -583,9 +652,9 @@
       { label: 'Mieux-disant', render: function (c) { var sc = scores(c)[0]; return sc && !sc.ko ? '<span class="fin-strong">' + esc(sc.f.nom) + '</span><span class="fin-sub">' + M(sc.d.montant) + ' · note ' + F.num(sc.total, 1) + '/100</span>' : '<span class="muted">—</span>'; }, csv: function (c) { var sc = scores(c)[0]; return sc ? sc.f.nom : ''; } },
       { label: 'Statut', render: function (c) { return B(c.statut); }, csv: function (c) { return c.statut; } }
     ];
-    st.coCols = cols; st.coRows = rows;
-    body.innerHTML = (aLancer.length ? '<div class="card" style="margin-bottom:16px"><div class="card__h"><h3>Demandes validées à mettre en consultation</h3><span class="sub">' + aLancer.length + '</span></div><div class="list">' + aLancer.map(function (o) { return '<div class="list__item"><div class="list__icon tone-green">' + ic('check') + '</div><div class="list__body"><b>' + o.id + ' · ' + esc(o.objet) + '</b><div class="small muted">' + M(o.montant) + ' · ' + esc(E.empName(o.demandeur)) + ' · validée le ' + F.date((o.visas[o.visas.length - 1] || {}).date || o.date) + '</div></div>' + (canAchats() ? '<button class="btn sm primary" data-act="launch-co" data-id="' + o.id + '">' + ic('layers') + 'Lancer</button>' : '<button class="btn sm" data-act="da" data-id="' + o.id + '">Voir</button>') + '</div>'; }).join('') + '</div></div>' : '') +
-      '<div class="card"><div class="card__h"><h3>Consultations & appels d\'offres</h3><span class="sub">notation pondérée : prix 60 % · délai 20 % · note fournisseur 20 %</span></div><div class="card__b" style="padding-bottom:4px">' + chips('coS', ['Toutes', 'En cours', 'Offres reçues', 'Attribuée', 'Infructueuse'], s) + '</div>' + U.table(cols, rows, { onRow: function (c) { openCO(c.id); }, empty: 'Aucune consultation' }) + '</div>';
+    cols = withSiteCol(cols); st.coCols = cols; st.coRows = rows;
+    body.innerHTML = (aLancer.length ? '<div class="card" style="margin-bottom:16px"><div class="card__h"><h3>Demandes validées à mettre en consultation</h3><span class="sub">' + aLancer.length + '</span></div><div class="list">' + aLancer.map(function (o) { return '<div class="list__item"><div class="list__icon tone-green">' + ic('check') + '</div><div class="list__body"><b>' + o.id + ' · ' + esc(o.objet) + '</b><div class="small muted">' + M(o.montant) + ' · ' + esc(empNom(o.demandeur)) + ' · validée le ' + F.date((o.visas[o.visas.length - 1] || {}).date || o.date) + '</div></div>' + (canAchats() ? '<button class="btn sm primary" data-act="launch-co" data-id="' + o.id + '">' + ic('layers') + 'Lancer</button>' : '<button class="btn sm" data-act="da" data-id="' + o.id + '">Voir</button>') + '</div>'; }).join('') + '</div></div>' : '') +
+      '<div class="card"><div class="card__h"><h3>Consultations & appels d\'offres</h3><span class="sub">notation pondérée : prix 60 % · délai 20 % · note fournisseur 20 %</span></div><div class="card__b" style="padding-bottom:4px">' + (sc() ? '' : '<div class="filters">' + siteFilter() + '</div>') + chips('coS', ['Toutes', 'En cours', 'Offres reçues', 'Attribuée', 'Infructueuse'], s) + '</div>' + U.table(cols, rows, { onRow: function (c) { openCO(c.id); }, empty: 'Aucune consultation' }) + '</div>';
   }
   function launchCO(daId) {
     var o = S.get('da', daId); if (!o) return;
@@ -596,7 +665,7 @@
     U.modal({ title: 'Lancer une consultation', sub: 'Les fournisseurs reçoivent le dossier de consultation (envoi simulé)', size: 'lg', body: html, actions: [{ label: 'Annuler' }, { label: 'Envoyer le dossier de consultation', cls: 'primary', icon: 'send', onClick: function (close, el) {
       var sel = E.$$('.fin-check input:checked', el).map(function (x) { return x.value; });
       if (sel.length < 2 || sel.length > 4) { U.toast('Sélectionnez entre 2 et 4 fournisseurs.', 'err'); return; }
-      var c = { id: nextId('consultations', 'CO'), daId: o.id, objet: o.objet, estimation: o.montant, categorie: o.categorie, date: today(), limite: el.querySelector('#co-lim').value || d(10), mode: el.querySelector('#co-mode').value, fournisseurs: sel, devis: [], statut: 'En cours' };
+      var c = { id: nextId('consultations', 'CO'), site: siteOf(o), daId: o.id, objet: o.objet, estimation: o.montant, categorie: o.categorie, date: today(), limite: el.querySelector('#co-lim').value || d(10), mode: el.querySelector('#co-mode').value, fournisseurs: sel, devis: [], statut: 'En cours' };
       S.add('consultations', c); o.statut = 'En consultation'; o.consultationId = c.id; S.save();
       E.log('Lancement consultation', c.id + ' · ' + o.id + ' · ' + sel.length + ' fournisseurs', MOD);
       close(); U.toast('Consultation ' + c.id + ' envoyée à ' + sel.length + ' fournisseurs'); if (st.tab !== 'consultations') E.go(MOD + '/consultations'); else refresh(); setTimeout(function () { openCO(c.id); }, 60);
@@ -671,7 +740,7 @@
       actions: [{ label: 'Annuler' }, { label: 'Attribuer et générer le BC', cls: 'success', icon: 'check', onClick: function (close, el) {
         var mot = el.querySelector('#att-m').value.trim(); if (notBest && !mot) { U.toast('Merci de motiver l\'attribution.', 'err'); return; }
         var o = S.get('da', c.daId), ratio = dv.montant / (o ? o.montant : dv.montant);
-        var bc = { id: nextId('bc', 'BC'), date: today(), fournisseur: fid, daId: c.daId, consultationId: c.id, objet: c.objet, categorie: c.categorie, imputation: o ? o.imputation : '', lignes: (o ? o.lignes : [{ designation: c.objet, qte: 1, unite: 'forfait', pu: dv.montant }]).map(function (l) { return Object.assign({}, l, { pu: Math.round(l.pu * ratio), recu: 0 }); }), livraisonPrevue: d(dv.delai), conditions: dv.conditions, lieu: 'Magasin central GPM — zone portuaire d\'Owendo', acheteur: myEmp() || empIdByName('Essono'), statut: 'Émis', receptions: [], historique: [{ date: today(), statut: 'Émis' }], motivation: mot };
+        var bc = { id: nextId('bc', 'BC'), date: today(), fournisseur: fid, daId: c.daId, consultationId: c.id, objet: c.objet, categorie: c.categorie, imputation: o ? o.imputation : '', lignes: (o ? o.lignes : [{ designation: c.objet, qte: 1, unite: 'forfait', pu: dv.montant }]).map(function (l) { return Object.assign({}, l, { pu: Math.round(l.pu * ratio), recu: 0 }); }), livraisonPrevue: d(dv.delai), conditions: dv.conditions, site: siteOf(o || c), lieu: lieuDefaut(siteOf(o || c)), acheteur: myEmp() || (siteOf(o || c) === 'POG' ? stepWho('chef', 'POG') : empIdByName('Essono')), statut: 'Émis', receptions: [], historique: [{ date: today(), statut: 'Émis' }], motivation: mot };
         var diff = dv.montant - bcHT(bc); if (bc.lignes.length && Math.abs(diff) > 0) { var l0 = bc.lignes[0]; l0.pu = Math.round(l0.pu + diff / l0.qte); }
         S.add('bc', bc);
         c.statut = 'Attribuée'; c.attributaire = fid; c.dateAttribution = today(); c.bcId = bc.id; c.motivation = mot;
@@ -692,14 +761,14 @@
   ];
   function filteredBC() {
     var s = st.f.bcS || 'Tous', q = E.norm(st.f['bc-q'] || '');
-    return bcs().filter(function (o) { return (s === 'Tous' || (s === 'En retard' ? bcLate(o) : s === 'En cours' ? OPEN.indexOf(o.statut) >= 0 : o.statut === s)) && (!q || E.norm(o.id + ' ' + o.objet + ' ' + frNom(o.fournisseur) + ' ' + (o.daId || '')).indexOf(q) >= 0); }).sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); });
+    return bcs().filter(function (o) { return siteOk(o) && (s === 'Tous' || (s === 'En retard' ? bcLate(o) : s === 'En cours' ? OPEN.indexOf(o.statut) >= 0 : o.statut === s)) && (!q || E.norm(o.id + ' ' + o.objet + ' ' + frNom(o.fournisseur) + ' ' + (o.daId || '')).indexOf(q) >= 0); }).sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); });
   }
   function vBC(body) {
     var open = bcs().filter(function (o) { return OPEN.indexOf(o.statut) >= 0; }), late = bcs().filter(bcLate);
     body.innerHTML = '<div class="fin-kpis" style="margin-bottom:16px">' + U.kpi({ label: 'Commandes en cours', value: open.length, icon: 'cart', tone: 'blue', foot: M(E.sum(open, bcHT)) + ' HT' }) + U.kpi({ label: 'En retard de livraison', value: late.length, icon: 'clock', tone: 'red', foot: late.length ? 'retard moyen ' + F.num(E.sum(late, retard) / late.length) + ' j' : 'aucun' }) + U.kpi({ label: 'Reste à recevoir', value: F.short(E.sum(open, function (o) { return bcHT(o) - bcRecuHT(o); })), unit: 'FCFA', icon: 'truck', tone: 'orange', foot: 'valeur HT des reliquats' }) + U.kpi({ label: 'Commandes ' + Y, value: bcs().filter(function (o) { return o.date.slice(0, 4) === String(Y); }).length, icon: 'doc', tone: 'grey', foot: M(E.sum(bcs().filter(function (o) { return o.statut !== 'Annulé'; }), bcHT)) }) + '</div>' +
-      '<div class="card"><div class="card__b"><div class="filters">' + searchBox('bc-q', 'Rechercher (n°, fournisseur, objet, DA)') + '</div>' + chips('bcS', ['Tous', 'En cours', 'En retard', 'Émis', 'Confirmé', 'Partiellement reçu', 'Reçu', 'Facturé', 'Soldé', 'Annulé'], st.f.bcS || 'Tous') + '</div><div id="bc-list"></div></div>';
-    function list() { var rows = filteredBC(), p = paged('bc', rows); body.querySelector('#bc-list').innerHTML = U.table(BC_COLS, p.rows, { onRow: function (o) { openBC(o.id); }, empty: 'Aucun bon de commande', footer: function () { return '<td colspan="2">' + rows.length + ' commande(s)</td><td class="num">' + F.money(E.sum(rows, bcHT)) + '</td><td colspan="3"></td>'; } }) + p.more; }
-    list(); bindSearch(body, 'bc-q', list);
+      '<div class="card"><div class="card__b"><div class="filters">' + searchBox('bc-q', 'Rechercher (n°, fournisseur, objet, DA)') + siteFilter() + '</div>' + chips('bcS', ['Tous', 'En cours', 'En retard', 'Émis', 'Confirmé', 'Partiellement reçu', 'Reçu', 'Facturé', 'Soldé', 'Annulé'], st.f.bcS || 'Tous') + '</div><div id="bc-list"></div></div>';
+    function list() { var rows = filteredBC(), p = paged('bc', rows); body.querySelector('#bc-list').innerHTML = U.table(withSiteCol(BC_COLS), p.rows, { onRow: function (o) { openBC(o.id); }, empty: 'Aucun bon de commande', footer: function () { return '<td colspan="' + (sc() ? 2 : 3) + '">' + rows.length + ' commande(s)</td><td class="num">' + F.money(E.sum(rows, bcHT)) + '</td><td colspan="3"></td>'; } }) + p.more; }
+    list(); bindSearch(body, 'bc-q', list); bindSiteFilter(body, list);
   }
   var BC_FLOW = ['Émis', 'Confirmé', 'Partiellement reçu', 'Reçu', 'Facturé', 'Soldé'];
   function openBC(id, fromUrl) {
@@ -709,7 +778,7 @@
       (o.statut === 'Annulé' ? '<div class="alert tone-grey">' + ic('x') + '<div>Commande annulée.</div></div>' : U.steps(BC_FLOW, Math.max(0, idx), { finished: o.statut === 'Soldé' })) +
       (bcLate(o) ? '<div class="alert tone-red">' + ic('clock') + '<div><b>Livraison attendue le ' + F.date(o.livraisonPrevue) + '</b> — pénalités contractuelles applicables : ' + F.money(Math.min(0.1, 0.005 * retard(o)) * (ht - bcRecuHT(o))) + ' à ce jour (0,5 %/j sur le reliquat).</div></div>' : '') +
       '<div class="grid g2 stack-m" style="margin-top:14px"><dl class="kv"><dt>Fournisseur</dt><dd><a href="#" data-four="' + o.fournisseur + '">' + esc(frNom(o.fournisseur)) + '</a></dd><dt>Objet</dt><dd>' + esc(o.objet) + '</dd><dt>Émis le</dt><dd>' + F.date(o.date) + '</dd><dt>Livraison prévue</dt><dd>' + F.date(o.livraisonPrevue) + '</dd><dt>Lieu</dt><dd>' + esc(o.lieu) + '</dd></dl>' +
-      '<dl class="kv"><dt>Origine</dt><dd>' + (o.daId ? '<a href="#" data-da="' + o.daId + '">' + o.daId + '</a>' : 'Commande directe') + (o.consultationId ? ' · <a href="#" data-co="' + o.consultationId + '">' + o.consultationId + '</a>' : '') + '</dd><dt>Imputation</dt><dd>' + esc(o.imputation || '—') + '</dd><dt>Conditions</dt><dd>' + esc(o.conditions) + '</dd><dt>Acheteur</dt><dd>' + esc(E.empName(o.acheteur)) + '</dd><dt>Montant TTC</dt><dd>' + F.money(Math.round(ht * (1 + TVA))) + '</dd></dl></div>' +
+      '<dl class="kv"><dt>Origine</dt><dd>' + (o.daId ? '<a href="#" data-da="' + o.daId + '">' + o.daId + '</a>' : 'Commande directe') + (o.consultationId ? ' · <a href="#" data-co="' + o.consultationId + '">' + o.consultationId + '</a>' : '') + '</dd><dt>Imputation</dt><dd>' + esc(o.imputation || '—') + '</dd><dt>Conditions</dt><dd>' + esc(o.conditions) + '</dd><dt>Acheteur</dt><dd>' + esc(empNom(o.acheteur)) + '</dd><dt>Montant TTC</dt><dd>' + F.money(Math.round(ht * (1 + TVA))) + '</dd></dl></div>' +
       '<div class="fin-sect">' + ic('list') + 'Lignes de commande</div>' + U.table([
         { label: 'Désignation', render: function (l) { return esc(l.designation) + (l.articleId ? ' <span class="small muted mono">' + esc(l.articleId) + '</span>' : ''); } },
         { label: 'Commandé', num: true, render: function (l) { return F.num(l.qte) + ' ' + esc(l.unite); } },
@@ -725,7 +794,7 @@
     if (canAchats() && o.statut === 'Émis') acts.push({ label: 'Accusé de réception reçu', icon: 'check', onClick: function (close) { o.statut = 'Confirmé'; o.historique.push({ date: today(), statut: 'Confirmé' }); S.save(); E.log('Confirmation BC', o.id, MOD); close(); refresh(); U.toast('Commande confirmée par le fournisseur'); openBC(o.id); } });
     if (OPEN.indexOf(o.statut) >= 0 && canAchats()) acts.push({ label: 'Réceptionner', cls: 'primary', icon: 'truck', onClick: function (close) { close(); receive(o.id); } });
     if ((o.statut === 'Reçu' || o.statut === 'Partiellement reçu' || o.statut === 'Facturé') && o.lignes.some(function (l, i) { return (l.recu || 0) > factureQte(o.id, i); })) acts.push({ label: 'Saisir la facture', cls: o.statut === 'Reçu' ? 'primary' : '', icon: 'invoice', onClick: function (close) { close(); newFF(o.id); } });
-    var m = U.modal({ title: o.id + ' · ' + frNom(o.fournisseur), sub: esc(o.objet), size: 'lg', body: html, actions: acts, onClose: fromUrl ? afterClose : null });
+    var m = U.modal({ title: o.id + ' · ' + frNom(o.fournisseur), sub: esc(o.objet) + (sc() ? '' : ' · ' + SITE_L[siteOf(o)]), size: 'lg', body: html, actions: acts, onClose: fromUrl ? afterClose : null });
     m.body.addEventListener('click', function (e) {
       var a = e.target.closest('[data-da],[data-co],[data-ff],[data-four]'); if (!a) return; e.preventDefault(); m.close();
       if (a.dataset.da) openDA(a.dataset.da); else if (a.dataset.co) openCO(a.dataset.co); else if (a.dataset.ff) openFF(a.dataset.ff); else openFournisseur(a.dataset.four);
@@ -736,24 +805,35 @@
   }
   function newBC(opt) {
     opt = opt || {}; var da = opt.da;
+    /* site de la commande : celui de la DA, sinon l'espace actif ; choix libre en vue globale (commande directe) */
+    var site0 = da ? siteOf(da) : (sc() || 'OWE'), siteFixed = !!(da || sc());
     var fields = [
       { name: 'fournisseur', label: 'Fournisseur', type: 'select', options: E.options('fournisseurs', function (f) { return f.nom + ' — ' + f.domaine; }), value: opt.fournisseur || (da && (CAT_F[da.categorie] || [])[0]) || 'F-001' },
       { name: 'objet', label: 'Objet', required: true, value: da ? da.objet : '', full: true },
+      { name: 'site', label: 'Site', type: 'select', options: (siteFixed ? [site0] : ['OWE', 'POG']).map(function (k) { return { v: k, l: k === 'POG' ? 'Port-Gentil' : 'Libreville (Owendo)' }; }), value: site0 },
+      { name: 'lieu', label: 'Lieu de livraison', required: true, value: lieuDefaut(site0) },
       { name: 'categorie', label: 'Catégorie', type: 'select', options: CATS, value: da ? da.categorie : '' },
-      { name: 'imputation', label: 'Imputation', type: 'select', options: imputations(), value: da ? da.imputation : '' },
+      { name: 'imputation', label: 'Imputation', type: 'select', options: imputations(site0).concat(da && imputations(site0).indexOf(da.imputation) < 0 ? [da.imputation] : []), value: da ? da.imputation : '' },
       { name: 'livraisonPrevue', label: 'Livraison prévue', type: 'date', required: true, value: d(21) },
       { name: 'conditions', label: 'Conditions de paiement', type: 'select', options: CONDS },
       { name: 'motif', label: 'Justification (commande directe)', full: true, value: da ? 'Commande directe sur marché cadre — ' + da.id : 'Appel sur contrat cadre', required: true }
     ];
-    var le = linesEditor('bc-le', da ? da.lignes : [], { articles: true });
-    U.modal({ title: da ? 'Commande directe — ' + da.id : 'Nouveau bon de commande', sub: 'Le bon est émis au statut « Émis » et peut être imprimé immédiatement', size: 'lg', body: U.form(fields) + le.html, actions: [{ label: 'Annuler' }, { label: 'Émettre le bon de commande', cls: 'primary', icon: 'check', onClick: function (close, el) {
+    var le = linesEditor('bc-le', da ? da.lignes : [], { articles: true, site: site0 });
+    var m = U.modal({ title: da ? 'Commande directe — ' + da.id : 'Nouveau bon de commande', sub: 'Le bon est émis au statut « Émis » et peut être imprimé immédiatement', size: 'lg', body: U.form(fields) + le.html, actions: [{ label: 'Annuler' }, { label: 'Émettre le bon de commande', cls: 'primary', icon: 'check', onClick: function (close, el) {
       var v = U.readForm(el); if (!v) return; var lignes = le.read(); if (!lignes.length) { U.toast('Ajoutez au moins une ligne.', 'err'); return; }
-      var o = { id: nextId('bc', 'BC'), date: today(), fournisseur: v.fournisseur, objet: v.objet, categorie: v.categorie, imputation: v.imputation, daId: da ? da.id : null, lignes: lignes.map(function (l) { l.recu = 0; return l; }), livraisonPrevue: v.livraisonPrevue, conditions: v.conditions, lieu: 'Magasin central GPM — zone portuaire d\'Owendo', acheteur: myEmp() || empIdByName('Essono'), statut: 'Émis', receptions: [], historique: [{ date: today(), statut: 'Émis' }], motivation: v.motif };
+      var site = sc() || (da ? siteOf(da) : v.site) || 'OWE';
+      var o = { id: nextId('bc', 'BC'), site: site, date: today(), fournisseur: v.fournisseur, objet: v.objet, categorie: v.categorie, imputation: v.imputation, daId: da ? da.id : null, lignes: lignes.map(function (l) { l.recu = 0; return l; }), livraisonPrevue: v.livraisonPrevue, conditions: v.conditions, lieu: v.lieu || lieuDefaut(site), acheteur: myEmp() || (site === 'POG' ? stepWho('chef', 'POG') : empIdByName('Essono')), statut: 'Émis', receptions: [], historique: [{ date: today(), statut: 'Émis' }], motivation: v.motif };
       S.add('bc', o); if (da) { da.statut = 'Commandée'; da.bcId = o.id; S.save(); }
       E.log('Émission BC', o.id + ' · ' + frNom(o.fournisseur) + ' · ' + M(bcHT(o)), MOD); E.notify('Bon de commande émis : ' + o.id, frNom(o.fournisseur) + ' · ' + M(bcHT(o)), '#/achats/bc/' + o.id, 'blue');
       close(); U.toast('Bon de commande ' + o.id + ' émis'); if (st.tab !== 'bc') E.go(MOD + '/bc'); else refresh(); setTimeout(function () { openBC(o.id); }, 60);
     } }] });
     le.bind();
+    var ss = m.el.querySelector('#f_site');
+    if (ss && !siteFixed) ss.onchange = function () {
+      var lieu = m.el.querySelector('#f_lieu'); if (!lieu.value || lieu.value === LIEUX.OWE || lieu.value === LIEUX.POG) lieu.value = lieuDefaut(ss.value);
+      m.el.querySelector('#f_imputation').innerHTML = imputations(ss.value).map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('');
+      le.setSite(ss.value);
+    };
   }
 
   /* ------------------------------------------------------------------ réceptions */
@@ -761,14 +841,14 @@
     var open = bcs().filter(function (o) { return OPEN.indexOf(o.statut) >= 0; }).sort(function (a, b) { return a.livraisonPrevue.localeCompare(b.livraisonPrevue); });
     var hist = []; bcs().forEach(function (o) { o.receptions.forEach(function (r) { hist.push({ r: r, o: o }); }); }); hist.sort(function (a, b) { return b.r.date.localeCompare(a.r.date); });
     var p = paged('rc', hist);
-    body.innerHTML = '<div class="card"><div class="card__h"><h3>Commandes à réceptionner</h3><span class="sub">' + open.length + ' commande(s) · triées par date de livraison prévue</span></div>' + U.table([
+    body.innerHTML = '<div class="card"><div class="card__h"><h3>Commandes à réceptionner</h3><span class="sub">' + open.length + ' commande(s) · triées par date de livraison prévue</span></div>' + U.table(withSiteCol([
       { label: 'BC', render: function (o) { return '<span class="mono fin-strong">' + o.id + '</span><span class="fin-sub">' + esc(frNom(o.fournisseur)) + '</span>'; } },
       { label: 'Objet', render: function (o) { return esc(o.objet); } },
       { label: 'Livraison prévue', render: function (o) { return F.date(o.livraisonPrevue) + (bcLate(o) ? ' ' + U.badge('Retard ' + retard(o) + ' j', 'red') : E.daysBetween(today(), o.livraisonPrevue) <= 7 ? ' ' + U.badge('Cette semaine', 'blue') : ''); } },
       { label: 'Déjà reçu', render: function (o) { return '<div style="min-width:110px">' + U.progress(bcPct(o)) + '</div>'; } },
       { label: 'Statut', render: function (o) { return B(o.statut); } },
       { label: '', render: function (o) { return canAchats() ? '<button class="btn sm primary" data-act="recv" data-id="' + o.id + '">' + ic('truck') + 'Réceptionner</button>' : ''; } }
-    ], open, { onRow: function (o) { openBC(o.id); }, empty: 'Aucune commande en attente de réception' }) + '</div>' +
+    ]), open, { onRow: function (o) { openBC(o.id); }, empty: 'Aucune commande en attente de réception' }) + '</div>' +
       '<div class="card" style="margin-top:16px"><div class="card__h"><h3>Historique des réceptions</h3><span class="sub">' + hist.length + ' bon(s) de livraison</span></div>' + U.table([
         { label: 'Date', render: function (x) { return F.date(x.r.date); } },
         { label: 'BL / PV', render: function (x) { return '<span class="mono">' + esc(x.r.bl) + '</span>'; } },
@@ -780,7 +860,7 @@
   }
   function receive(id) {
     var o = S.get('bc', id); if (!o) return;
-    var arts = S.has('articles') ? S.all('articles') : null;
+    var arts = S.has('articles') ? S.raw('articles').filter(function (a) { return siteOf(a) === siteOf(o); }) : null;
     var html = '<div class="alert tone-blue">' + ic('truck') + '<div><b>' + o.id + ' · ' + esc(frNom(o.fournisseur)) + '</b><br>Saisissez les quantités effectivement livrées. Les lignes liées à un article du magasin génèrent une entrée en stock.</div></div>' +
       '<div class="form-grid" style="margin-top:14px"><div class="field"><label>N° du bon de livraison *</label><input class="input" id="rc-bl" placeholder="Ex. : BL-2026-0412"></div><div class="field"><label>Date de réception</label><input class="input" type="date" id="rc-date" value="' + today() + '"></div><div class="field"><label>Conformité</label><select class="select" id="rc-conf"><option>Conforme</option><option>Avec réserves</option></select></div><div class="field"><label>Commentaire / réserves</label><input class="input" id="rc-com" placeholder="Facultatif"></div></div>' +
       '<div class="fin-box" style="margin-top:14px"><div class="fin-rec head"><span>Ligne</span><span class="num">Commandé</span><span class="num">Déjà reçu</span><span class="num">Reçu ce jour</span></div>' +
@@ -797,9 +877,9 @@
         var l = o.lignes[x.i]; l.recu = (l.recu || 0) + x.qte;
         var sel = el.querySelector('[data-art="' + x.i + '"]'), artId = sel ? sel.value : (arts ? l.articleId : null);
         if (artId && S.has('articles')) {
-          var a = S.get('articles', artId);
+          var a = S.raw('articles').find(function (x) { return x.id === artId && siteOf(x) === siteOf(o); });
           if (a) { l.articleId = artId; a.qte = (+a.qte || 0) + x.qte; stockMsg.push(a.id + ' +' + F.num(x.qte));
-            if (S.has('mouvementsStock')) S.all('mouvementsStock').unshift({ id: S.next('MS'), date: date, type: 'Entrée', articleId: a.id, qte: x.qte, pu: l.pu, ref: o.id, demandeur: myEmp() || empIdByName('Mengue'), commentaire: 'Réception ' + bl + ' — ' + frNom(o.fournisseur) }); }
+            if (S.has('mouvementsStock')) S.raw('mouvementsStock').unshift({ id: S.next('MS'), site: siteOf(o), date: date, type: 'Entrée', articleId: a.id, qte: x.qte, pu: l.pu, ref: o.id, demandeur: myEmp() || (siteOf(o) === 'POG' ? empIdByName('Mamfoumbi', 'POG') : empIdByName('Mengue', 'OWE')), commentaire: 'Réception ' + bl + ' — ' + frNom(o.fournisseur) }); }
         }
       });
       o.receptions.push({ id: 'RC-' + o.id.slice(-4) + '-' + (o.receptions.length + 1), date: date, bl: bl, par: user().name, conformite: el.querySelector('#rc-conf').value, commentaire: el.querySelector('#rc-com').value.trim(), lignes: lines });
@@ -822,14 +902,14 @@
       { l: 'Au-delà de 30 jours', t: 'grey', f: function (f) { return f.echeance > d(30); } }];
     var sched = '<div class="card"><div class="card__h"><h3>Échéancier des paiements</h3><span class="sub">factures non réglées · ' + M(E.sum(open, ffTTC)) + ' TTC</span></div><div class="card__b"><div class="fin-kv2" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">' + buckets.map(function (b) { var l = open.filter(b.f); return '<div><small>' + b.l + '</small><b class="' + (b.t === 'red' && l.length ? 'fin-red' : '') + '">' + M(E.sum(l, ffTTC)) + '</b><div class="small muted">' + l.length + ' facture(s)</div></div>'; }).join('') + '</div>' +
       '<div class="timeline" style="margin-top:14px">' + open.slice().sort(function (a, b) { return a.echeance.localeCompare(b.echeance); }).map(function (f) { var late = f.echeance < today(); return '<div class="tl-item ' + (late ? 'rejected' : f.statut === 'Bon à payer' ? 'current' : '') + '" data-act="ff" data-id="' + f.id + '" style="cursor:pointer"><b>' + F.date(f.echeance) + ' · ' + esc(frNom(f.fournisseur)) + ' — ' + F.money(ffTTC(f)) + '</b><span>' + f.id + ' · ' + esc(f.ref) + ' · ' + f.statut + (late ? ' · échue depuis ' + E.daysBetween(f.echeance, today()) + ' j' : '') + '</span></div>'; }).join('') + '</div></div></div>';
-    var rows = all.filter(function (f) { return (s === 'Toutes' || (s === 'Échues' ? f.statut !== 'Payée' && f.echeance < today() : s === 'Avec écart' ? f.statut !== 'Payée' && !rappro(f).ok : f.statut === s)) && (!q || E.norm(f.id + ' ' + f.ref + ' ' + frNom(f.fournisseur) + ' ' + f.bcId).indexOf(q) >= 0); }).sort(function (a, b) { return b.date.localeCompare(a.date); });
+    var rows = all.filter(function (f) { return siteOk(f) && (s === 'Toutes' || (s === 'Échues' ? f.statut !== 'Payée' && f.echeance < today() : s === 'Avec écart' ? f.statut !== 'Payée' && !rappro(f).ok : f.statut === s)) && (!q || E.norm(f.id + ' ' + f.ref + ' ' + frNom(f.fournisseur) + ' ' + f.bcId).indexOf(q) >= 0); }).sort(function (a, b) { return b.date.localeCompare(a.date); });
     st.ffRows = rows;
-    body.innerHTML = kp + '<div class="grid g-2-1"><div class="card"><div class="card__b"><div class="filters">' + searchBox('ff-q', 'Rechercher (n°, réf. fournisseur, BC)') + '</div>' + chips('ffS', ['Toutes', 'À contrôler', 'Avec écart', 'Bon à payer', 'Échues', 'Litige', 'Payée'], s) + '</div><div id="ff-list"></div></div>' + sched + '</div>';
+    body.innerHTML = kp + '<div class="grid g-2-1"><div class="card"><div class="card__b"><div class="filters">' + searchBox('ff-q', 'Rechercher (n°, réf. fournisseur, BC)') + siteFilter() + '</div>' + chips('ffS', ['Toutes', 'À contrôler', 'Avec écart', 'Bon à payer', 'Échues', 'Litige', 'Payée'], s) + '</div><div id="ff-list"></div></div>' + sched + '</div>';
     function list() {
       var qq = E.norm(st.f['ff-q'] || ''), r = rows.filter(function (f) { return !qq || E.norm(f.id + ' ' + f.ref + ' ' + frNom(f.fournisseur) + ' ' + f.bcId).indexOf(qq) >= 0; });
-      body.querySelector('#ff-list').innerHTML = U.table(FF_COLS, r, { onRow: function (f) { openFF(f.id); }, empty: 'Aucune facture' });
+      body.querySelector('#ff-list').innerHTML = U.table(withSiteCol(FF_COLS), r, { onRow: function (f) { openFF(f.id); }, empty: 'Aucune facture' });
     }
-    list(); bindSearch(body, 'ff-q', function () { rows = all.filter(function (f) { return s === 'Toutes' || (s === 'Échues' ? f.statut !== 'Payée' && f.echeance < today() : s === 'Avec écart' ? f.statut !== 'Payée' && !rappro(f).ok : f.statut === s); }); list(); });
+    bindSiteFilter(body, draw); list(); bindSearch(body, 'ff-q', function () { rows = all.filter(function (f) { return siteOk(f) && (s === 'Toutes' || (s === 'Échues' ? f.statut !== 'Payée' && f.echeance < today() : s === 'Avec écart' ? f.statut !== 'Payée' && !rappro(f).ok : f.statut === s)); }); list(); });
   }
   var FF_COLS = [
     { label: 'N°', render: function (f) { return '<span class="mono fin-strong">' + f.id + '</span><span class="fin-sub">' + esc(f.ref) + '</span>'; }, csv: function (f) { return f.id; } },
@@ -896,7 +976,7 @@
     var m = U.modal({ title: 'Enregistrer une facture fournisseur', sub: 'Saisie à partir du bon de commande — contrôle à 3 voies automatique', size: 'lg', body: html, actions: [{ label: 'Annuler' }, { label: 'Enregistrer la facture', cls: 'primary', icon: 'check', onClick: function (close, el) {
       var ref = el.querySelector('#ff-ref').value.trim(); if (!ref) { U.toast('Indiquez la référence de la facture.', 'err'); return; }
       var b = S.get('bc', el.querySelector('#ff-bc').value), lignes = readFFLines(el); if (!lignes.length) { U.toast('Aucune ligne facturée.', 'err'); return; }
-      var f = { id: nextId('facturesFournisseurs', 'FF'), bcId: b.id, fournisseur: b.fournisseur, ref: ref, date: el.querySelector('#ff-date').value || today(), echeance: el.querySelector('#ff-ech').value || d(30), statut: 'À contrôler', lignes: lignes, historique: [{ date: today(), action: 'Facture reçue et enregistrée', user: user().name }] };
+      var f = { id: nextId('facturesFournisseurs', 'FF'), site: siteOf(b), bcId: b.id, fournisseur: b.fournisseur, ref: ref, date: el.querySelector('#ff-date').value || today(), echeance: el.querySelector('#ff-ech').value || d(30), statut: 'À contrôler', lignes: lignes, historique: [{ date: today(), action: 'Facture reçue et enregistrée', user: user().name }] };
       S.add('facturesFournisseurs', f); recomputeBC(b); S.save();
       var r = rappro(f); E.log('Saisie facture fournisseur', f.id + ' · ' + ref + ' · ' + M(ffTTC(f)) + (r.ok ? '' : ' · ÉCART ' + M(r.ecart)), MOD);
       E.notify('Facture fournisseur à contrôler : ' + f.id, frNom(b.fournisseur) + ' · ' + M(ffTTC(f)) + (r.ok ? '' : ' · écart détecté'), '#/achats/factures/' + f.id, r.ok ? 'blue' : 'red');
@@ -924,7 +1004,7 @@
         return '<div class="card fin-card" data-act="four" data-id="' + f.id + '"><div class="card__b"><div class="fin-card__top">' + U.avatar(f.nom) + '<div style="min-width:0"><b>' + esc(f.nom) + '</b><span class="small muted">' + esc(f.domaine) + ' · ' + esc(f.ville) + '</span></div></div>' +
           '<div class="row" style="gap:8px">' + stars(evalScore(e)) + '<b>' + F.num(evalScore(e), 1) + '</b><span class="spacer"></span>' + (exp ? U.badge(exp + ' document expiré', 'red') : al.length ? U.badge('Document à renouveler', 'orange') : U.badge('Dossier à jour', 'green')) + '</div>' +
           '<div class="fin-meter"><span>Qualité</span><div class="progress green"><i style="width:' + e.qualite * 20 + '%"></i></div><em>' + F.num(e.qualite, 1) + '</em></div><div class="fin-meter"><span>Délais</span><div class="progress"><i style="width:' + e.delais * 20 + '%"></i></div><em>' + F.num(e.delais, 1) + '</em></div><div class="fin-meter"><span>HSE</span><div class="progress orange"><i style="width:' + e.hse * 20 + '%"></i></div><em>' + F.num(e.hse, 1) + '</em></div>' +
-          '<div class="fin-kv2"><div><small>Volume ' + Y + '</small><b>' + M(volume(f.id)) + '</b></div><div><small>Commandes suivies</small><b>' + nb + '</b></div></div></div></div>';
+          '<div class="fin-kv2"><div><small>' + (sc() ? 'Commandes du site ' : 'Volume ') + Y + '</small><b>' + M(volume(f.id)) + '</b></div><div><small>Commandes suivies</small><b>' + nb + '</b></div></div></div></div>';
       }).join('') || '<div class="empty">Aucun fournisseur</div>';
     }
     list(); bindSearch(body, 'fo-q', list);
@@ -937,7 +1017,7 @@
       '<div><div class="row" style="margin-bottom:8px">' + stars(evalScore(e)) + '<span class="fin-big">' + F.num(evalScore(e), 1) + '</span><span class="muted small">/ 5 · évaluation globale</span></div>' +
       '<div class="fin-meter"><span>Qualité</span><div class="progress green"><i style="width:' + e.qualite * 20 + '%"></i></div><em>' + F.num(e.qualite, 1) + '</em></div><div class="fin-meter"><span>Délais</span><div class="progress"><i style="width:' + e.delais * 20 + '%"></i></div><em>' + F.num(e.delais, 1) + '</em></div><div class="fin-meter"><span>HSE</span><div class="progress orange"><i style="width:' + e.hse * 20 + '%"></i></div><em>' + F.num(e.hse, 1) + '</em></div>' +
       (e.commentaire ? '<p class="small" style="color:var(--ink-2)">« ' + esc(e.commentaire) + ' »</p>' : '') +
-      '<div class="fin-kv2"><div><small>Volume d\'achats ' + Y + '</small><b>' + M(volume(id)) + '</b></div><div><small>Factures en attente</small><b>' + M(E.sum(fs.filter(function (x) { return x.statut !== 'Payée'; }), ffTTC)) + '</b></div></div></div></div>' +
+      '<div class="fin-kv2"><div><small>' + (sc() ? 'Commandes du site ' : 'Volume d\'achats ') + Y + '</small><b>' + M(volume(id)) + '</b></div><div><small>Factures en attente</small><b>' + M(E.sum(fs.filter(function (x) { return x.statut !== 'Payée'; }), ffTTC)) + '</b></div></div></div></div>' +
       '<div class="fin-sect">' + ic('file') + 'Documents administratifs</div>' + U.table([
         { label: 'Document', render: function (dc) { return '<b>' + esc(dc.type) + '</b>'; } }, { label: 'Numéro', render: function (dc) { return '<span class="mono">' + esc(dc.numero) + '</span>'; } },
         { label: 'Expiration', render: function (dc) { return F.date(dc.expiration); } }, { label: 'État', render: function (dc) { var s = docStatus(dc); return U.badge(s.l, s.t); } },
@@ -951,7 +1031,7 @@
     var acts = [{ label: 'Fermer' }];
     if (canAchats()) {
       acts.push({ label: 'Évaluer', icon: 'star', onClick: function (close) { U.formModal({ title: 'Évaluation du fournisseur', sub: f.nom, fields: [{ name: 'qualite', label: 'Qualité (1 à 5)', type: 'number', step: '0.1', min: 1, value: e.qualite, required: true }, { name: 'delais', label: 'Respect des délais (1 à 5)', type: 'number', step: '0.1', min: 1, value: e.delais, required: true }, { name: 'hse', label: 'HSE (1 à 5)', type: 'number', step: '0.1', min: 1, value: e.hse, required: true }, { name: 'commentaire', label: 'Commentaire', type: 'textarea', value: e.commentaire }], onSubmit: function (v) {
-        var cl = function (x) { return Math.max(1, Math.min(5, +x)); }; var ev = S.get('evalFournisseurs', id); if (!ev) { ev = Object.assign({}, e); S.all('evalFournisseurs').push(ev); }
+        var cl = function (x) { return Math.max(1, Math.min(5, +x)); }; var ev = evalRaw(id); if (!ev) { ev = Object.assign({}, e); S.raw('evalFournisseurs').push(ev); }
         Object.assign(ev, { qualite: cl(v.qualite), delais: cl(v.delais), hse: cl(v.hse), commentaire: v.commentaire }); f.note = Math.round(evalScore(ev) * 10) / 10; S.save(); E.log('Évaluation fournisseur', f.nom + ' · ' + F.num(f.note, 1) + '/5', MOD); close(); refresh(); U.toast('Évaluation enregistrée'); openFournisseur(id);
       } }); } });
       acts.push({ label: 'Nouveau bon de commande', cls: 'primary', icon: 'cart', onClick: function (close) { close(); newBC({ fournisseur: id }); } });
@@ -960,7 +1040,7 @@
     m.body.addEventListener('click', function (ev2) {
       var b = ev2.target.closest('[data-doc]'); if (!b) return; var type = b.dataset.doc;
       U.formModal({ title: 'Renouveler : ' + type, sub: f.nom, fields: [{ name: 'numero', label: 'Numéro', required: true }, { name: 'expiration', label: 'Nouvelle date d\'expiration', type: 'date', value: d(type.indexOf('fiscale') >= 0 ? 180 : 365), required: true }], onSubmit: function (v) {
-        var ev = S.get('evalFournisseurs', id); var dc = ev && ev.docs.find(function (x) { return x.type === type; }); if (dc) { dc.numero = v.numero; dc.expiration = v.expiration; S.save(); }
+        var ev = evalRaw(id); var dc = ev && ev.docs.find(function (x) { return x.type === type; }); if (dc) { dc.numero = v.numero; dc.expiration = v.expiration; S.save(); }
         E.log('Renouvellement document fournisseur', f.nom + ' · ' + type, MOD); m.close(); refresh(); U.toast('Document mis à jour'); openFournisseur(id);
       } });
     });
@@ -968,7 +1048,7 @@
 
   /* ------------------------------------------------------------------ export */
   function exportTab() {
-    if (st.tab === 'da') U.exportCSV('demandes-achat-' + today(), [{ label: 'N°', key: 'id' }, { label: 'Date', key: 'date' }, { label: 'Objet', key: 'objet' }, { label: 'Demandeur', csv: function (o) { return E.empName(o.demandeur); } }, { label: 'Direction', key: 'direction' }, { label: 'Catégorie', key: 'categorie' }, { label: 'Imputation', key: 'imputation' }, { label: 'Urgence', key: 'urgence' }, { label: 'Montant estimé', key: 'montant' }, { label: 'Statut', key: 'statut' }], filteredDA());
+    if (st.tab === 'da') U.exportCSV('demandes-achat-' + today(), [{ label: 'N°', key: 'id' }, { label: 'Date', key: 'date' }, { label: 'Objet', key: 'objet' }, { label: 'Demandeur', csv: function (o) { return empNom(o.demandeur); } }, { label: 'Direction', key: 'direction' }, { label: 'Catégorie', key: 'categorie' }, { label: 'Imputation', key: 'imputation' }, { label: 'Urgence', key: 'urgence' }, { label: 'Montant estimé', key: 'montant' }, { label: 'Statut', key: 'statut' }], filteredDA());
     else if (st.tab === 'bc') U.exportCSV('bons-de-commande-' + today(), [{ label: 'N°', key: 'id' }, { label: 'Date', key: 'date' }, { label: 'Fournisseur', csv: function (o) { return frNom(o.fournisseur); } }, { label: 'Objet', key: 'objet' }, { label: 'Montant HT', csv: bcHT }, { label: 'Livraison prévue', key: 'livraisonPrevue' }, { label: 'Reçu %', csv: function (o) { return Math.round(bcPct(o)); } }, { label: 'Statut', key: 'statut' }, { label: 'DA', key: 'daId' }], filteredBC());
     else if (st.tab === 'factures') U.exportCSV('factures-fournisseurs-' + today(), [{ label: 'N°', key: 'id' }, { label: 'Réf. fournisseur', key: 'ref' }, { label: 'Fournisseur', csv: function (f) { return frNom(f.fournisseur); } }, { label: 'BC', key: 'bcId' }, { label: 'Date', key: 'date' }, { label: 'Échéance', key: 'echeance' }, { label: 'HT', csv: ffHT }, { label: 'TTC', csv: ffTTC }, { label: 'Rapprochement', csv: function (f) { return rappro(f).ok ? 'Conforme' : 'Écart'; } }, { label: 'Statut', key: 'statut' }], st.ffRows || ffs());
     else if (st.tab === 'consultations') U.exportCSV('consultations-' + today(), st.coCols, st.coRows || cos());
@@ -981,7 +1061,7 @@
     if (!p) return out;
     das().forEach(function (o) {
       if (o.statut !== 'En validation') return; var nx = daNext(o);
-      if (PROFILE_STEP[p] === nx) out.push({ title: o.id + ' · ' + o.objet, sub: M(o.montant) + ' · demandé par ' + E.empName(o.demandeur) + ' · visa ' + STEP[nx].label.toLowerCase(), date: o.date, href: '#/achats/da/' + o.id, tone: o.urgence === 'Normale' ? 'orange' : 'red' });
+      if (PROFILE_STEP[p] === nx) out.push({ title: o.id + ' · ' + o.objet, sub: M(o.montant) + ' · demandé par ' + empNom(o.demandeur) + ' · visa ' + STEP[nx].label.toLowerCase(), date: o.date, href: '#/achats/da/' + o.id, tone: o.urgence === 'Normale' ? 'orange' : 'red' });
     });
     if (p === 'achats') {
       das().filter(function (o) { return o.statut === 'Validée'; }).forEach(function (o) { out.push({ title: o.id + ' · à mettre en consultation', sub: o.objet + ' · ' + M(o.montant), date: o.date, href: '#/achats/da/' + o.id, tone: 'green' }); });
@@ -995,7 +1075,7 @@
   }
   function search(q) {
     var out = [];
-    das().forEach(function (o) { if (E.norm(o.id + ' ' + o.objet + ' ' + E.empName(o.demandeur)).indexOf(q) >= 0) out.push({ title: o.id + ' · ' + o.objet, sub: 'Demande d\'achat · ' + o.statut + ' · ' + M(o.montant), href: '#/achats/da/' + o.id }); });
+    das().forEach(function (o) { if (E.norm(o.id + ' ' + o.objet + ' ' + empNom(o.demandeur)).indexOf(q) >= 0) out.push({ title: o.id + ' · ' + o.objet, sub: 'Demande d\'achat · ' + o.statut + ' · ' + M(o.montant), href: '#/achats/da/' + o.id }); });
     bcs().forEach(function (o) { if (E.norm(o.id + ' ' + o.objet + ' ' + frNom(o.fournisseur)).indexOf(q) >= 0) out.push({ title: o.id + ' · ' + frNom(o.fournisseur), sub: 'Bon de commande · ' + o.objet + ' · ' + o.statut, href: '#/achats/bc/' + o.id }); });
     ffs().forEach(function (f) { if (E.norm(f.id + ' ' + f.ref + ' ' + frNom(f.fournisseur)).indexOf(q) >= 0) out.push({ title: f.id + ' · ' + frNom(f.fournisseur), sub: 'Facture fournisseur ' + f.ref + ' · ' + f.statut, href: '#/achats/factures/' + f.id }); });
     cos().forEach(function (c) { if (E.norm(c.id + ' ' + c.objet).indexOf(q) >= 0) out.push({ title: c.id + ' · ' + c.objet, sub: 'Consultation · ' + c.statut, href: '#/achats/consultations/' + c.id }); });

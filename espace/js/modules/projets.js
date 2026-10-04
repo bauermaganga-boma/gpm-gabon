@@ -13,7 +13,7 @@
   };
   var M = function (i) { return 'MAT-' + (2041 + i * 7); };
   var cur = { view: null, params: [] };
-  var flt = { q: '', vue: 'tous', statut: '' };
+  var flt = { q: '', vue: 'tous', statut: '', site: '' };
   var planUnit = null, ficheUnit = 'month';
 
   /* ------------------------------------------------------------------ utilitaires */
@@ -51,9 +51,17 @@
     var r = 42, c = 2 * Math.PI * r, len = c * Math.max(0, Math.min(100, pct)) / 100;
     return '<svg class="prj-ring" viewBox="0 0 100 100" width="' + (size || 110) + '" height="' + (size || 110) + '"><circle cx="50" cy="50" r="' + r + '" fill="none" stroke="#eef1f5" stroke-width="10"/><circle cx="50" cy="50" r="' + r + '" fill="none" stroke="' + (color || '#163b75') + '" stroke-width="10" stroke-linecap="round" stroke-dasharray="' + len.toFixed(1) + ' ' + c.toFixed(1) + '" transform="rotate(-90 50 50)"/><text x="50" y="50" text-anchor="middle" style="font:700 21px Sora,sans-serif;fill:#0d1b2a">' + Math.round(pct) + '%</text><text x="50" y="66" text-anchor="middle" style="font:500 9px Inter,sans-serif;fill:#7a879a">avancement</text></svg>';
   }
-  function empOpts() { return S.all('employes').map(function (e) { return { v: e.id, l: e.nom + ' — ' + e.poste }; }); }
+  function sc() { return E.scope(); }
+  function siteOf(p) { return (p && p.site) || 'OWE'; }
+  var SITE_L = { OWE: 'Owendo', POG: 'Port-Gentil' };
+  /* employés du site du projet (vue globale : site du projet ; espace de site : site actif) */
+  function empOpts(site) { var s = site || sc(); return S.raw('employes').filter(function (e) { return e.statut !== 'Sorti' && (!s || (e.site || 'OWE') === s); }).map(function (e) { return { v: e.id, l: e.nom + ' — ' + e.poste }; }); }
+  function empNom(id) { var e = S.raw('employes').find(function (x) { return x.id === id; }); return e ? e.nom : id || '—'; }
+  function empGet(id) { return S.raw('employes').find(function (x) { return x.id === id; }); }
+  function siteBadge(p) { return '<span class="badge plain ' + (siteOf(p) === 'POG' ? 'tone-green' : 'tone-blue') + '">' + SITE_L[siteOf(p)] + '</span>'; }
   function refresh() { if (cur.view) { var y = window.scrollY; render(cur.view, cur.params); window.scrollTo(0, y); } E.renderBadges(); }
-  function nextId() { var n = all().reduce(function (m, p) { var k = +(String(p.id).split('-')[1]) || 0; return Math.max(m, k); }, 0) + 1; return 'PRJ-' + String(n).padStart(2, '0'); }
+  /* numéro calculé sur tous les sites (pas de doublon entre Owendo et Port-Gentil) */
+  function nextId() { var n = S.raw(COL).reduce(function (m, p) { var k = +(String(p.id).split('-')[1]) || 0; return Math.max(m, k); }, 0) + 1; return 'PRJ-' + String(n).padStart(2, '0'); }
   function publicNote(p) { return p.public ? ' (mis à jour sur le site public)' : ''; }
 
   /* ------------------------------------------------------------------ données d'exemple (dates relatives à aujourd'hui)
@@ -76,16 +84,17 @@
         { d: D(-6), type: 'Réunion de chantier', auteur: M(25), titre: 'Point hebdomadaire — poste 3', texte: 'Défenses réceptionnées et conformes. Dépose engagée sur la moitié nord du poste. Deux ancrages présentent une corrosion avancée.', decisions: ['Programmer une inspection subaquatique des ancrages', 'Informer le service commercial des créneaux d\'indisponibilité'] },
         { d: D(-25), type: 'Comité de pilotage', auteur: M(3), titre: 'COPIL mensuel', texte: 'Fabrication terminée avec une semaine d\'avance. Budget respecté à ce stade.', decisions: ['Valider le démarrage de la dépose dès réception'] }],
       documents: [{ nom: 'Plan de pose des défenses — poste 3', type: 'PDF', d: D(-40) }, { nom: 'PV de réception usine des défenses', type: 'PDF', d: D(-5) }, { nom: 'Planning travaux poste 3', type: 'XLSX', d: D(-6) }] },
-    'PRJ-02': { responsable: M(25), equipe: [M(25), M(36), M(39), M(13)], meteo: 'soleil',
+    'PRJ-02': { responsable: M(36), equipe: [M(36), M(39), M(40), M(41)], meteo: 'soleil',
       courbe: { prevu: [[YM(-1), 0], [YM(0), 15], [YM(1), 25], [YM(2), 45], [YM(3), 75], [YM(4), 100]], reel: [[YM(-1), 0], [YM(0), 17]] },
-      taches: [{ t: 'Levé hydrographique du chenal', s: D(-30), e: D(5), p: 80, lot: 'Études', resp: M(13) }, { t: 'Analyse des fonds et volumes à draguer', s: D(0), e: D(15), p: 10, lot: 'Études', resp: M(25) },
-        { t: 'Consultation des entreprises de dragage', s: D(0), e: D(40), p: 10, lot: 'Achats', resp: M(32) }, { t: 'Dragage d\'entretien', s: D(45), e: D(110), p: 0, lot: 'Travaux', resp: M(36) }, { t: 'Levé de contrôle et balisage', s: D(110), e: D(120), p: 0, lot: 'Réception', resp: M(39) }],
+      taches: [{ t: 'Levé hydrographique du chenal', s: D(-30), e: D(5), p: 80, lot: 'Études', resp: M(39) }, { t: 'Analyse des fonds et volumes à draguer', s: D(0), e: D(15), p: 10, lot: 'Études', resp: M(36) },
+        { t: 'Consultation des entreprises de dragage', s: D(0), e: D(40), p: 10, lot: 'Achats', resp: M(36) }, { t: 'Dragage d\'entretien', s: D(45), e: D(110), p: 0, lot: 'Travaux', resp: M(41) }, { t: 'Levé de contrôle et balisage', s: D(110), e: D(120), p: 0, lot: 'Réception', resp: M(39) }],
       budgetLignes: [{ lot: 'Hydrographie', budget: 120e6, engage: 120e6, facture: 70e6 }, { lot: 'Dragage', budget: 950e6, engage: 60e6, facture: 0 }, { lot: 'Suivi environnemental', budget: 50e6, engage: 0, facture: 0 }, { lot: 'Provisions & aléas', budget: 80e6, engage: 0, facture: 0 }],
       risques: [
-        { titre: 'Volumes de sédiments supérieurs aux estimations', probabilite: 3, impact: 4, mitigation: 'Bordereau de prix au m³ avec tranche optionnelle.', statut: 'Ouvert', resp: M(25) },
+        { titre: 'Volumes de sédiments supérieurs aux estimations', probabilite: 3, impact: 4, mitigation: 'Bordereau de prix au m³ avec tranche optionnelle.', statut: 'Ouvert', resp: M(36) },
         { titre: 'Gêne à la navigation pendant le dragage', probabilite: 3, impact: 3, mitigation: 'Avis aux navigateurs, coordination avec les pilotes et la capitainerie.', statut: 'Ouvert', resp: M(39) },
-        { titre: 'Disponibilité d\'une drague dans la sous-région', probabilite: 2, impact: 4, mitigation: 'Consultation élargie à trois entreprises, réservation anticipée.', statut: 'Ouvert', resp: M(32) }],
-      journal: [{ d: D(-3), type: 'Revue technique', auteur: M(13), titre: 'Premiers résultats du levé', texte: 'Le levé confirme un envasement localisé à l\'entrée du chenal. Les profondeurs restent compatibles avec le trafic actuel.', decisions: ['Publier un avis aux navigateurs sur la zone envasée', 'Lancer la consultation des dragueurs'] }],
+        { titre: 'Gêne aux navires ravitailleurs offshore et aux pétroliers à l\'appontement', probabilite: 3, impact: 3, mitigation: 'Dragage par zones, créneaux coordonnés avec le plan de quai de Port-Gentil.', statut: 'Ouvert', resp: M(41) },
+        { titre: 'Disponibilité d\'une drague dans la sous-région', probabilite: 2, impact: 4, mitigation: 'Consultation élargie à trois entreprises, réservation anticipée.', statut: 'Ouvert', resp: M(36) }],
+      journal: [{ d: D(-3), type: 'Revue technique', auteur: M(39), titre: 'Premiers résultats du levé', texte: 'Le levé confirme un envasement localisé à l\'entrée du chenal. Les profondeurs restent compatibles avec le trafic actuel.', decisions: ['Publier un avis aux navigateurs sur la zone envasée', 'Lancer la consultation des dragueurs'] }],
       documents: [{ nom: 'Cahier des charges du levé hydrographique', type: 'PDF', d: D(-32) }] },
     'PRJ-03': { responsable: M(35), equipe: [M(35), M(26), M(15), M(28)], meteo: 'soleil',
       courbe: { prevu: [[YM(-1), 0], [YM(0), 30], [YM(1), 55], [YM(2), 80], [YM(3), 100]], reel: [[YM(-1), 0], [YM(0), 33]] },
@@ -141,15 +150,38 @@
       documents: [{ nom: 'Cartographie des processus', type: 'PDF', d: D(-80) }, { nom: 'Plan de déploiement par lots', type: 'PDF', d: D(-4) }] },
     { id: 'PRJ-08', code: 'MAG-POG', nom: 'Réhabilitation du magasin couvert et du terre-plein de Port-Gentil', public: false,
       resume: 'Réfection de la toiture et du bardage du magasin, reprise de la dalle, rénovation du terre-plein et du réseau d\'eaux pluviales.',
-      partenaire: 'Mandji Transports (démo)', debut: D(-90), fin: D(180), statut: 'En cours', budget: 0.9e9, engage: 0.38e9, chef: 'Agence de Port-Gentil', responsable: M(36), equipe: [M(36), M(41), M(25)], meteo: 'soleil',
+      partenaire: 'Mandji Transports (démo)', debut: D(-90), fin: D(180), statut: 'En cours', budget: 0.9e9, engage: 0.38e9, chef: 'Agence de Port-Gentil', responsable: M(36), equipe: [M(36), M(41), M(40)], meteo: 'soleil',
       jalons: [{ d: D(-60), t: 'Diagnostic structurel du magasin', fait: true }, { d: D(45), t: 'Toiture et bardage terminés', fait: false }, { d: D(180), t: 'Réception du terre-plein', fait: false }],
-      taches: [{ t: 'Diagnostic structurel', s: D(-90), e: D(-60), p: 100, lot: 'Études', resp: M(25) }, { t: 'Réfection de la toiture et du bardage', s: D(-40), e: D(45), p: 45, lot: 'Bâtiment', resp: M(36) }, { t: 'Reprise de la dalle du magasin', s: D(30), e: D(90), p: 0, lot: 'Génie civil', resp: M(25) }, { t: 'Terre-plein et eaux pluviales', s: D(60), e: D(175), p: 0, lot: 'Génie civil', resp: M(41) }],
+      taches: [{ t: 'Diagnostic structurel', s: D(-90), e: D(-60), p: 100, lot: 'Études', resp: M(36) }, { t: 'Réfection de la toiture et du bardage', s: D(-40), e: D(45), p: 45, lot: 'Bâtiment', resp: M(36) }, { t: 'Reprise de la dalle du magasin', s: D(30), e: D(90), p: 0, lot: 'Génie civil', resp: M(41) }, { t: 'Terre-plein et eaux pluviales', s: D(60), e: D(175), p: 0, lot: 'Génie civil', resp: M(41) }],
       courbe: { prevu: [[YM(-3), 0], [YM(-1), 20], [YM(0), 28], [YM(2), 50], [YM(6), 100]], reel: [[YM(-3), 0], [YM(-1), 20], [YM(0), 29]] },
       budgetLignes: [{ lot: 'Bâtiment (toiture, bardage)', budget: 0.35e9, engage: 0.3e9, facture: 0.14e9 }, { lot: 'Dalle & terre-plein', budget: 0.45e9, engage: 0.06e9, facture: 0 }, { lot: 'Études & contrôle', budget: 0.05e9, engage: 0.02e9, facture: 0.02e9 }, { lot: 'Provisions', budget: 0.05e9, engage: 0, facture: 0 }],
-      risques: [{ titre: 'Stockage des marchandises pendant les travaux', probabilite: 3, impact: 3, mitigation: 'Travaux par travées, location de tentes de stockage temporaires.', statut: 'Ouvert', resp: M(41) }, { titre: 'Travail en hauteur sur la toiture', probabilite: 2, impact: 5, mitigation: 'Lignes de vie, filets, permis de travail en hauteur quotidien.', statut: 'Maîtrisé', resp: M(6) }],
+      risques: [{ titre: 'Stockage des marchandises pendant les travaux', probabilite: 3, impact: 3, mitigation: 'Travaux par travées, location de tentes de stockage temporaires.', statut: 'Ouvert', resp: M(41) }, { titre: 'Travail en hauteur sur la toiture', probabilite: 2, impact: 5, mitigation: 'Lignes de vie, filets, permis de travail en hauteur quotidien.', statut: 'Maîtrisé', resp: M(36) }],
       journal: [{ d: D(-7), type: 'Réunion de chantier', auteur: M(36), titre: 'Avancement toiture', texte: 'Neuf travées de toiture sur vingt remplacées. Aucun incident.', decisions: ['Maintenir le phasage par travées'] }],
-      documents: [{ nom: 'Diagnostic structurel du magasin', type: 'PDF', d: D(-60) }] }
+      documents: [{ nom: 'Diagnostic structurel du magasin', type: 'PDF', d: D(-60) }] },
+    { id: 'PRJ-09', code: 'SOUT-P3', nom: 'Extension et sécurisation de l\'appontement de soutage (POG-P3)', public: false,
+      resume: 'Allongement de l\'appontement de soutage, nouveaux bras de chargement, détection gaz et rideau d\'eau, rétention et barrages antipollution permanents.',
+      partenaire: 'Mandji Transports (démo)', debut: D(-45), fin: D(220), statut: 'En cours', budget: 1.6e9, engage: 0.52e9, chef: 'Agence de Port-Gentil', responsable: M(37), equipe: [M(37), M(38), M(36), M(41)], meteo: 'nuage',
+      jalons: [{ d: D(-30), t: 'Étude de dangers validée', fait: true }, { d: D(-2), t: 'Commande des bras de chargement', fait: false }, { d: D(120), t: 'Mise en service du nouveau poste de soutage', fait: false }, { d: D(220), t: 'Réception et exercice POLMAR', fait: false }],
+      taches: [{ t: 'Étude de dangers et dossier réglementaire', s: D(-45), e: D(-30), p: 100, lot: 'Études', resp: M(37) }, { t: 'Commande des bras de chargement et des flexibles', s: D(-25), e: D(-2), p: 70, lot: 'Achats', resp: M(36) },
+        { t: 'Génie civil de l\'extension', s: D(10), e: D(110), p: 0, lot: 'Génie civil', resp: M(41) }, { t: 'Détection gaz, rideau d\'eau et rétention', s: D(60), e: D(150), p: 0, lot: 'Sécurité', resp: M(38) }, { t: 'Essais, formation et exercice POLMAR', s: D(180), e: D(220), p: 0, lot: 'Réception', resp: M(37) }],
+      courbe: { prevu: [[YM(-2), 0], [YM(-1), 8], [YM(0), 15], [YM(3), 45], [YM(5), 75], [YM(7), 100]], reel: [[YM(-2), 0], [YM(-1), 7], [YM(0), 12]] },
+      budgetLignes: [{ lot: 'Génie civil', budget: 0.8e9, engage: 0.2e9, facture: 0.05e9 }, { lot: 'Bras de chargement & flexibles', budget: 0.45e9, engage: 0.3e9, facture: 0 }, { lot: 'Sécurité incendie & antipollution', budget: 0.25e9, engage: 0.02e9, facture: 0 }, { lot: 'Provisions', budget: 0.1e9, engage: 0, facture: 0 }],
+      risques: [{ titre: 'Coactivité avec les livraisons de soutage pendant les travaux', probabilite: 4, impact: 4, mitigation: 'Phasage, permis de feu, détection gaz portative, livraisons suspendues pendant les travaux à chaud.', statut: 'Ouvert', resp: M(37) }, { titre: 'Délai de fabrication des bras de chargement', probabilite: 3, impact: 3, mitigation: 'Commande anticipée, pénalités de retard.', statut: 'Ouvert', resp: M(36) }],
+      journal: [{ d: D(-5), type: 'Réunion de chantier', auteur: M(37), titre: 'Préparation du génie civil', texte: 'Étude de dangers validée par la capitainerie. Consultation des bras de chargement en cours de finalisation.', decisions: ['Valider la commande des bras de chargement', 'Planifier les livraisons de soutage hors des créneaux de travaux'] }],
+      documents: [{ nom: 'Étude de dangers — appontement de soutage', type: 'PDF', d: D(-30) }] },
+    { id: 'PRJ-10', code: 'RM03-REM', nom: 'Remotorisation du remorqueur Cap Lopez (RM-03)', public: false,
+      resume: 'Remplacement des deux moteurs principaux du remorqueur Cap Lopez, révision des propulseurs et mise à niveau de l\'électronique de passerelle.',
+      partenaire: 'Estuaire Marine Services (démo)', debut: D(30), fin: D(150), statut: 'Planifié', budget: 1.1e9, engage: 0.15e9, chef: 'Agence de Port-Gentil', responsable: M(40), equipe: [M(40), M(39), M(36)], meteo: 'soleil',
+      jalons: [{ d: D(30), t: 'Mise à sec du remorqueur', fait: false }, { d: D(110), t: 'Essais à quai des nouveaux moteurs', fait: false }, { d: D(150), t: 'Essais en mer et remise en service', fait: false }],
+      taches: [{ t: 'Commande des moteurs et pièces', s: D(-10), e: D(25), p: 30, lot: 'Achats', resp: M(36) }, { t: 'Mise à sec et dépose des anciens moteurs', s: D(30), e: D(50), p: 0, lot: 'Chantier naval', resp: M(40) },
+        { t: 'Pose et alignement des moteurs', s: D(50), e: D(105), p: 0, lot: 'Chantier naval', resp: M(40) }, { t: 'Essais à quai et en mer', s: D(105), e: D(150), p: 0, lot: 'Essais', resp: M(39) }],
+      courbe: { prevu: [[YM(0), 0], [YM(1), 10], [YM(3), 60], [YM(5), 100]], reel: [[YM(0), 0]] },
+      budgetLignes: [{ lot: 'Moteurs & propulsion', budget: 0.8e9, engage: 0.15e9, facture: 0 }, { lot: 'Chantier naval', budget: 0.2e9, engage: 0, facture: 0 }, { lot: 'Électronique & essais', budget: 0.1e9, engage: 0, facture: 0 }],
+      risques: [{ titre: 'Un seul remorqueur à Port-Gentil pendant l\'immobilisation', probabilite: 4, impact: 4, mitigation: 'Remorqueur d\'assistance affrété ; détachement ponctuel d\'un remorqueur d\'Owendo pour les pétroliers.', statut: 'Ouvert', resp: M(36) }],
+      journal: [], documents: [{ nom: 'Cahier des charges de la remotorisation', type: 'PDF', d: D(-12) }] }
   ];
+  /* site de rattachement de chaque projet (les projets du groupe sont pilotés depuis Owendo) */
+  var SITES_PRJ = { 'PRJ-02': 'POG', 'PRJ-08': 'POG', 'PRJ-09': 'POG', 'PRJ-10': 'POG' };
   function seed() {
     var base = E.clone(window.GPM_DATA ? window.GPM_DATA.projetsDefaut : []);
     base.forEach(function (p) { var x = EXTRA[p.id]; if (x) Object.keys(x).forEach(function (k) { p[k] = E.clone(x[k]); }); p.avancement = calcAv(p); });
@@ -159,6 +191,7 @@
       (p.journal || []).forEach(function (j, i) { j.id = p.id + '-CR' + (i + 1); });
       p.equipe = p.equipe || []; p.documents = p.documents || []; p.journal = p.journal || []; p.risques = p.risques || [];
       if (!p.budgetLignes) p.budgetLignes = [{ lot: 'Budget global', budget: p.budget || 0, engage: p.engage || 0, facture: 0 }];
+      p.site = SITES_PRJ[p.id] || 'OWE';
     });
     return { projets: base };
   }
@@ -270,8 +303,8 @@
     if (lt.length) alertTxt.push(lt.length + ' tâche' + (lt.length > 1 ? 's' : '') + ' en retard');
     if (!alertTxt.length && late) alertTxt.push('Écart de ' + Math.abs(ecart(p)) + ' pts sur le prévu');
     return '<article class="card prj-card m-' + (p.meteo || 'soleil') + '" data-id="' + p.id + '" tabindex="0">' +
-      '<div class="prj-top"><span class="prj-code">' + esc(p.code) + '</span>' + statBadge(p.statut) + pubBadge(p) + '<span class="spacer"></span>' + meteoPill(p) + '</div>' +
-      '<div><h3>' + esc(p.nom) + '</h3><div class="small muted" style="margin-top:4px">' + esc(p.partenaire || '—') + ' · ' + esc(E.empName(p.responsable)) + '</div></div>' +
+      '<div class="prj-top"><span class="prj-code">' + esc(p.code) + '</span>' + statBadge(p.statut) + (sc() ? '' : siteBadge(p)) + pubBadge(p) + '<span class="spacer"></span>' + meteoPill(p) + '</div>' +
+      '<div><h3>' + esc(p.nom) + '</h3><div class="small muted" style="margin-top:4px">' + esc(p.partenaire || '—') + ' · ' + esc(empNom(p.responsable)) + '</div></div>' +
       '<div class="prj-av"><div class="prj-av__lbl"><b>' + (p.avancement || 0) + ' %</b><span>réalisé</span>' + (pl != null && p.statut !== 'Terminé' ? '<span class="spacer"></span><span>prévu ' + pl + ' %</span>' : '') + '</div>' +
       '<div class="progress ' + (p.avancement >= 100 ? 'green' : late ? 'orange' : '') + '"><i style="width:' + (p.avancement || 0) + '%"></i></div></div>' +
       '<div class="prj-stats"><div><span>Budget</span><b>' + F.pct(cons) + '</b><small>' + F.short(p.engage) + ' / ' + F.short(p.budget) + '</small></div>' +
@@ -288,7 +321,8 @@
       if (flt.vue === 'internes' && p.public) return false;
       if (flt.vue === 'retard' && !isLate(p)) return false;
       if (flt.statut && p.statut !== flt.statut) return false;
-      if (q && E.norm(p.nom + ' ' + p.code + ' ' + p.id + ' ' + p.partenaire + ' ' + E.empName(p.responsable)).indexOf(q) < 0) return false;
+      if (!sc() && flt.site && siteOf(p) !== flt.site) return false;
+      if (q && E.norm(p.nom + ' ' + p.code + ' ' + p.id + ' ' + p.partenaire + ' ' + empNom(p.responsable)).indexOf(q) < 0) return false;
       return true;
     });
   }
@@ -296,11 +330,11 @@
   function renderPortefeuille(view) {
     var P = all();
     view.innerHTML = topTabs('portefeuille') +
-      '<div class="section-title" style="margin-bottom:14px"><div><h2>Portefeuille de projets</h2><p>Infrastructures portuaires, équipements et projets internes d\'Owendo et de Port-Gentil — suivi de l\'avancement, des coûts et des risques.</p></div><span class="spacer"></span>' +
+      '<div class="section-title" style="margin-bottom:14px"><div><h2>Portefeuille de projets' + (sc() ? ' — ' + SITE_L[sc()] : '') + '</h2><p>' + (sc() === 'POG' ? 'Projets de l\'agence de Port-Gentil : appontement de soutage, chenal, magasin, flotte' : sc() === 'OWE' ? 'Infrastructures portuaires, équipements et projets internes du port d\'Owendo' : 'Infrastructures portuaires, équipements et projets internes d\'Owendo et de Port-Gentil') + ' — suivi de l\'avancement, des coûts et des risques.</p></div><span class="spacer"></span>' +
       '<button class="btn" id="pj-csv">' + E.icon('download') + 'Exporter</button><button class="btn primary" id="pj-new">' + E.icon('plus') + 'Nouveau projet</button></div>' +
       kpiRow() +
       '<div class="filters" style="margin-top:18px"><div class="chips" id="pj-vue">' + [['tous', 'Tous', P.length], ['publics', 'Visibles sur le site', P.filter(function (p) { return p.public; }).length], ['internes', 'Internes', P.filter(function (p) { return !p.public; }).length], ['retard', 'En retard', P.filter(isLate).length]].map(function (c) { return '<button class="chip' + (flt.vue === c[0] ? ' is-active' : '') + '" data-v="' + c[0] + '">' + c[1] + ' · ' + c[2] + '</button>'; }).join('') + '</div>' +
-      '<span class="spacer"></span><select class="select" id="pj-st"><option value="">Tous les statuts</option>' + STATUTS.map(function (s) { return '<option' + (flt.statut === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select>' +
+      '<span class="spacer"></span>' + (sc() ? '' : '<select class="select" id="pj-site"><option value="">Tous les sites</option><option value="OWE"' + (flt.site === 'OWE' ? ' selected' : '') + '>Libreville (Owendo)</option><option value="POG"' + (flt.site === 'POG' ? ' selected' : '') + '>Port-Gentil</option></select>') + '<select class="select" id="pj-st"><option value="">Tous les statuts</option>' + STATUTS.map(function (s) { return '<option' + (flt.statut === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select>' +
       '<input class="input" id="pj-q" type="search" placeholder="Rechercher un projet…" value="' + esc(flt.q) + '"></div>' +
       '<div id="pj-cards"></div>';
     function draw() {
@@ -310,12 +344,13 @@
     draw();
     E.$('#pj-vue', view).addEventListener('click', function (e) { var b = e.target.closest('.chip'); if (!b) return; flt.vue = b.dataset.v; E.$$('#pj-vue .chip', view).forEach(function (c) { c.classList.toggle('is-active', c === b); }); draw(); });
     E.$('#pj-st', view).onchange = function (e) { flt.statut = e.target.value; draw(); };
+    var psf = E.$('#pj-site', view); if (psf) psf.onchange = function (e) { flt.site = e.target.value; draw(); };
     E.$('#pj-q', view).oninput = function (e) { flt.q = e.target.value; draw(); };
     E.$('#pj-cards', view).addEventListener('click', function (e) { var c = e.target.closest('.prj-card'); if (c) E.go('projets/' + c.dataset.id); });
     E.$('#pj-cards', view).addEventListener('keydown', function (e) { var c = e.target.closest('.prj-card'); if (c && e.key === 'Enter') E.go('projets/' + c.dataset.id); });
     E.$('#pj-new', view).onclick = newProject;
     E.$('#pj-csv', view).onclick = function () {
-      U.exportCSV('portefeuille-projets', [{ label: 'Réf.', key: 'id' }, { label: 'Code', key: 'code' }, { label: 'Projet', key: 'nom' }, { label: 'Statut', key: 'statut' }, { label: 'Public', csv: function (p) { return p.public ? 'Oui' : 'Non'; } }, { label: 'Responsable', csv: function (p) { return E.empName(p.responsable); } }, { label: 'Début', key: 'debut' }, { label: 'Fin', key: 'fin' }, { label: 'Avancement %', key: 'avancement' }, { label: 'Prévu %', csv: function (p) { return planned(p); } }, { label: 'Budget FCFA', key: 'budget' }, { label: 'Engagé FCFA', key: 'engage' }, { label: 'Météo', csv: function (p) { return meteo(p).l; } }], filtered());
+      U.exportCSV('portefeuille-projets', [{ label: 'Réf.', key: 'id' }, { label: 'Site', csv: function (p) { return SITE_L[siteOf(p)]; } }, { label: 'Code', key: 'code' }, { label: 'Projet', key: 'nom' }, { label: 'Statut', key: 'statut' }, { label: 'Public', csv: function (p) { return p.public ? 'Oui' : 'Non'; } }, { label: 'Responsable', csv: function (p) { return empNom(p.responsable); } }, { label: 'Début', key: 'debut' }, { label: 'Fin', key: 'fin' }, { label: 'Avancement %', key: 'avancement' }, { label: 'Prévu %', csv: function (p) { return planned(p); } }, { label: 'Budget FCFA', key: 'budget' }, { label: 'Engagé FCFA', key: 'engage' }, { label: 'Météo', csv: function (p) { return meteo(p).l; } }], filtered());
     };
   }
 
@@ -326,10 +361,10 @@
     unit = unit || planUnit || (sel.length > 1 ? 'quarter' : 'month');
     var rows = [];
     sel.forEach(function (p) {
-      rows.push({ label: p.code + ' — ' + p.nom, sub: p.statut + ' · ' + (p.avancement || 0) + ' % · ' + E.empName(p.responsable), start: p.debut, end: p.fin, progress: p.avancement || 0, group: true,
+      rows.push({ label: p.code + ' — ' + p.nom, sub: p.statut + ' · ' + (p.avancement || 0) + ' % · ' + empNom(p.responsable), start: p.debut, end: p.fin, progress: p.avancement || 0, group: true,
         milestones: (p.jalons || []).map(function (j) { return { date: j.d, label: j.t, done: j.fait }; }), onClick: function () { E.go('projets/' + p.id); } });
       (p.taches || []).slice().sort(function (a, b) { return a.s < b.s ? -1 : 1; }).forEach(function (t) {
-        rows.push({ label: t.t, sub: t.lot + (t.resp ? ' · ' + E.empName(t.resp) : ''), start: t.s, end: t.e, progress: +t.p || 0, onClick: function () { E.go('projets/' + p.id + '/taches'); } });
+        rows.push({ label: t.t, sub: t.lot + (t.resp ? ' · ' + empNom(t.resp) : ''), start: t.s, end: t.e, progress: +t.p || 0, onClick: function () { E.go('projets/' + p.id + '/taches'); } });
       });
     });
     var from = sel.reduce(function (m, p) { return !m || p.debut < m ? p.debut : m; }, null), to = sel.reduce(function (m, p) { return !m || p.fin > m ? p.fin : m; }, null);
@@ -368,7 +403,7 @@
       '<a class="prj-back" href="#/projets">' + E.icon('back') + 'Portefeuille de projets</a>' +
       '<div class="prj-head__main" style="margin-top:10px"><div class="prj-head__txt"><div class="prj-top"><span class="prj-code">' + esc(p.code) + '</span>' + statBadge(p.statut) + pubBadge(p) + meteoPill(p) + (late && p.statut !== 'Terminé' ? U.badge('En retard', 'red') : '') + '</div>' +
       '<h2>' + esc(p.nom) + '</h2><p>' + esc(p.resume || '') + '</p>' +
-      '<div class="prj-meta"><span>Réf. <b>' + p.id + '</b></span><span>Partenaire <b>' + esc(p.partenaire || '—') + '</b></span><span>Responsable <b>' + esc(E.empName(p.responsable)) + '</b></span><span>Période <b>' + F.date(p.debut) + ' → ' + F.date(p.fin) + '</b></span><span>Budget <b>' + F.short(p.budget) + ' FCFA</b></span></div></div>' +
+      '<div class="prj-meta"><span>Réf. <b>' + p.id + '</b></span>' + (sc() ? '' : '<span>Site <b>' + SITE_L[siteOf(p)] + '</b></span>') + '<span>Partenaire <b>' + esc(p.partenaire || '—') + '</b></span><span>Responsable <b>' + esc(empNom(p.responsable)) + '</b></span><span>Période <b>' + F.date(p.debut) + ' → ' + F.date(p.fin) + '</b></span><span>Budget <b>' + F.short(p.budget) + ' FCFA</b></span></div></div>' +
       ring(p.avancement || 0, 118, p.avancement >= 100 ? '#1e9e4a' : late ? '#e8780c' : '#163b75') + '</div>' +
       '<div class="prj-actions"><button class="btn accent" id="pf-pub">' + E.icon('globe') + (p.public ? 'Retirer du site' : 'Publier sur le site') + '</button>' +
       '<button class="btn line" id="pf-edit">' + E.icon('edit') + 'Modifier</button><button class="btn line" id="pf-task">' + E.icon('plus') + 'Tâche</button>' +
@@ -408,7 +443,7 @@
       '<div class="card"><div class="card__h"><h3>Risques majeurs</h3><span class="spacer"></span><a class="btn ghost sm" href="#/projets/' + p.id + '/risques">Matrice ' + E.icon('arrow') + '</a></div><div class="list">' +
       (R.length ? R.map(function (r) { var s = score(r); return '<div class="list__item"><div class="list__icon tone-' + scoreTone(s) + '" style="font-weight:800">' + s + '</div><div class="list__body"><b>' + esc(r.titre) + '</b><div class="small muted">' + esc(r.mitigation || '') + '</div></div></div>'; }).join('') : '<div class="empty">Aucun risque ouvert.</div>') + '</div></div></div></div>' +
       '<div class="grid g2 stack-m" style="margin-top:16px"><div class="card"><div class="card__h"><h3>Équipe projet</h3><span class="sub">' + (p.equipe || []).length + ' personnes</span></div><div class="card__b prj-team">' +
-      (p.equipe || []).map(function (id) { var e = E.emp(id); if (!e) return ''; return '<div>' + U.avatar(e.nom, null, true) + '<div style="min-width:0"><b class="small">' + esc(e.nom) + (id === p.responsable ? ' <span class="badge tone-navy plain">Responsable</span>' : '') + '</b><div class="small muted">' + esc(e.poste) + ' · ' + esc(E.dirName(e.direction)) + '</div></div></div>'; }).join('') + '</div></div>' +
+      (p.equipe || []).map(function (id) { var e = empGet(id); if (!e) return ''; return '<div>' + U.avatar(e.nom, null, true) + '<div style="min-width:0"><b class="small">' + esc(e.nom) + (id === p.responsable ? ' <span class="badge tone-navy plain">Responsable</span>' : '') + '</b><div class="small muted">' + esc(e.poste) + ' · ' + esc(E.dirName(e.direction)) + '</div></div></div>'; }).join('') + '</div></div>' +
       '<div class="card"><div class="card__h"><h3>Documents du projet</h3><span class="sub">GED</span></div><div class="list">' +
       ((p.documents || []).length ? p.documents.map(function (d) { return '<div class="list__item"><div class="list__icon ' + (d.type === 'PDF' ? 'tone-red' : 'tone-green') + '">' + E.icon('doc') + '</div><div class="list__body"><b>' + esc(d.nom) + '</b><div class="small muted">' + esc(d.type) + ' · déposé le ' + F.date(d.d) + '</div></div></div>'; }).join('') : '<div class="empty">Aucun document.</div>') + '</div></div></div>';
   }
@@ -419,7 +454,7 @@
     Object.keys(groups).forEach(function (lot) {
       var L = groups[lot], s = L.reduce(function (m, t) { return !m || t.s < m ? t.s : m; }, null), e = L.reduce(function (m, t) { return !m || t.e > m ? t.e : m; }, null);
       rows.push({ label: lot, sub: L.length + ' tâche(s)', start: s, end: e, group: true, progress: Math.round(E.sum(L, function (t) { return (+t.p || 0) * dur(t); }) / E.sum(L, dur)) });
-      L.forEach(function (t) { rows.push({ label: t.t, sub: t.resp ? E.empName(t.resp) : '', start: t.s, end: t.e, progress: +t.p || 0, onClick: function () { editTask(p, (p.taches || []).indexOf(t)); } }); });
+      L.forEach(function (t) { rows.push({ label: t.t, sub: t.resp ? empNom(t.resp) : '', start: t.s, end: t.e, progress: +t.p || 0, onClick: function () { editTask(p, (p.taches || []).indexOf(t)); } }); });
     });
     el.innerHTML = '<div class="card"><div class="card__h"><h3>Planning du projet</h3><span class="sub">cliquez une barre pour modifier la tâche</span><span class="spacer"></span><div class="prj-seg" id="pp-u">' + [['week', 'Semaine'], ['month', 'Mois'], ['quarter', 'Trimestre']].map(function (u) { return '<button data-u="' + u[0] + '" class="' + (ficheUnit === u[0] ? 'is-active' : '') + '">' + u[1] + '</button>'; }).join('') + '</div></div>' +
       U.gantt({ rows: rows, from: p.debut, to: p.fin, unit: ficheUnit, title: 'Lot / tâche' }) + '</div>';
@@ -430,7 +465,7 @@
     var T = p.taches || [];
     var cols = [
       { label: 'Tâche', render: function (t) { return '<b>' + esc(t.t) + '</b><div class="small muted">' + esc(t.lot || '') + '</div>'; } },
-      { label: 'Responsable', render: function (t) { return t.resp ? esc(E.empName(t.resp)) : ''; } },
+      { label: 'Responsable', render: function (t) { return t.resp ? esc(empNom(t.resp)) : ''; } },
       { label: 'Début', render: function (t) { return F.dateShort(t.s); }, cls: 'nowrap' },
       { label: 'Fin', render: function (t) { return F.dateShort(t.e); }, cls: 'nowrap' },
       { label: 'Durée', num: true, render: function (t) { return dur(t) + ' j'; } },
@@ -450,7 +485,7 @@
       b = e.target.closest('[data-del]'); if (b) { var t = T[+b.dataset.del]; U.confirm('Supprimer la tâche', 'Supprimer « ' + esc(t.t) + ' » du planning ?', 'Supprimer', function () { T.splice(+b.dataset.del, 1); applyAv(p, 'Tâche supprimée : ' + t.t); }, 'danger'); }
     });
     E.$('#pt-add', el).onclick = function () { editTask(p, null); };
-    E.$('#pt-csv', el).onclick = function () { U.exportCSV('taches-' + p.code, [{ label: 'Tâche', key: 't' }, { label: 'Lot', key: 'lot' }, { label: 'Responsable', csv: function (t) { return E.empName(t.resp); } }, { label: 'Début', key: 's' }, { label: 'Fin', key: 'e' }, { label: 'Avancement %', key: 'p' }, { label: 'Statut', csv: function (t) { return taskStatus(t)[0]; } }], T); };
+    E.$('#pt-csv', el).onclick = function () { U.exportCSV('taches-' + p.code, [{ label: 'Tâche', key: 't' }, { label: 'Lot', key: 'lot' }, { label: 'Responsable', csv: function (t) { return empNom(t.resp); } }, { label: 'Début', key: 's' }, { label: 'Fin', key: 'e' }, { label: 'Avancement %', key: 'p' }, { label: 'Statut', csv: function (t) { return taskStatus(t)[0]; } }], T); };
   }
   function applyAv(p, what) {
     var old = p.avancement || 0, nv = calcAv(p), patch = { taches: p.taches, avancement: nv };
@@ -468,7 +503,7 @@
     U.formModal({ title: t ? 'Modifier la tâche' : 'Nouvelle tâche', sub: p.code + ' — ' + p.nom, okLabel: t ? 'Enregistrer' : 'Ajouter la tâche',
       fields: [{ name: 't', label: 'Intitulé de la tâche', required: true, full: true, placeholder: 'Ex. Épreuve hydraulique du bac' },
         { name: 'lot', label: 'Lot / phase', required: true, placeholder: lots.slice(0, 3).join(', ') || 'Ingénierie' },
-        { name: 'resp', label: 'Responsable', type: 'select', empty: '— Non affecté —', options: empOpts() },
+        { name: 'resp', label: 'Responsable', type: 'select', empty: '— Non affecté —', options: empOpts(siteOf(p)) },
         { name: 's', label: 'Début', type: 'date', required: true }, { name: 'e', label: 'Fin', type: 'date', required: true },
         { name: 'p', label: 'Avancement (%)', type: 'number', min: 0, step: 5 }],
       values: t ? { t: t.t, lot: t.lot, resp: t.resp || '', s: t.s, e: t.e, p: t.p } : { lot: lots[0] || '', s: today(), e: E.addDays(today(), 30), p: 0 },
@@ -524,7 +559,7 @@
       { label: 'Risque', render: function (r) { return '<b>' + esc(r.titre) + '</b><div class="small muted">' + esc(r.mitigation || '') + '</div>'; } },
       { label: 'P × I', num: true, render: function (r) { return r.probabilite + ' × ' + r.impact; } },
       { label: 'Criticité', render: function (r) { var s = score(r); return U.badge(String(s), scoreTone(s)); } },
-      { label: 'Responsable', render: function (r) { return esc(E.empName(r.resp)); } },
+      { label: 'Responsable', render: function (r) { return esc(empNom(r.resp)); } },
       { label: 'Statut', render: function (r) { return U.badge(r.statut, { 'Ouvert': 'orange', 'Maîtrisé': 'blue', 'Clos': 'grey' }[r.statut]); } }
     ];
     el.innerHTML = '<div class="grid g-1-2"><div class="card"><div class="card__h"><h3>Matrice des risques</h3><span class="sub">' + open.length + ' risques non clos</span></div><div class="card__b">' + m + '</div></div>' +
@@ -536,7 +571,7 @@
     var sc = [1, 2, 3, 4, 5].map(function (i) { return { v: i, l: i + ' — ' + ['Très faible', 'Faible', 'Moyen', 'Fort', 'Très fort'][i - 1] }; });
     U.formModal({ title: r ? 'Risque ' + r.id : 'Nouveau risque', sub: p.code + ' — ' + p.nom,
       fields: [{ name: 'titre', label: 'Description du risque', required: true, full: true }, { name: 'probabilite', label: 'Probabilité', type: 'select', options: sc }, { name: 'impact', label: 'Impact', type: 'select', options: sc },
-        { name: 'resp', label: 'Responsable', type: 'select', options: empOpts() }, { name: 'statut', label: 'Statut', type: 'select', options: ['Ouvert', 'Maîtrisé', 'Clos'] }, { name: 'mitigation', label: 'Plan de mitigation', type: 'textarea' }],
+        { name: 'resp', label: 'Responsable', type: 'select', options: empOpts(siteOf(p)) }, { name: 'statut', label: 'Statut', type: 'select', options: ['Ouvert', 'Maîtrisé', 'Clos'] }, { name: 'mitigation', label: 'Plan de mitigation', type: 'textarea' }],
       values: r || { probabilite: 3, impact: 3, statut: 'Ouvert', resp: p.responsable },
       onSubmit: function (v) {
         v.probabilite = +v.probabilite; v.impact = +v.impact; p.risques = p.risques || [];
@@ -586,15 +621,15 @@
     var J = (p.journal || []).slice().sort(function (a, b) { return a.d < b.d ? 1 : -1; });
     el.innerHTML = '<div class="card"><div class="card__h"><h3>Journal du projet</h3><span class="sub">comptes rendus de réunion et faits marquants</span><span class="spacer"></span><button class="btn primary sm" id="pjn-add">' + E.icon('plus') + 'Nouveau compte rendu</button></div><div class="card__b">' +
       (J.length ? '<div class="timeline">' + J.map(function (j) {
-        return '<div class="tl-item done"><div class="prj-cr"><div class="row small muted"><b style="display:inline;color:var(--ink)">' + F.date(j.d) + '</b>' + U.badge(j.type, j.type === 'Comité de pilotage' ? 'navy' : j.type === 'Revue technique' ? 'violet' : j.type === 'Réception' ? 'green' : 'blue') + '<span>par ' + esc(E.empName(j.auteur)) + '</span></div>' +
+        return '<div class="tl-item done"><div class="prj-cr"><div class="row small muted"><b style="display:inline;color:var(--ink)">' + F.date(j.d) + '</b>' + U.badge(j.type, j.type === 'Comité de pilotage' ? 'navy' : j.type === 'Revue technique' ? 'violet' : j.type === 'Réception' ? 'green' : 'blue') + '<span>par ' + esc(empNom(j.auteur)) + '</span></div>' +
           '<h4>' + esc(j.titre) + '</h4><div style="font-size:13px;color:var(--ink-2)">' + esc(j.texte) + '</div>' +
           ((j.decisions || []).length ? '<div class="dec"><b class="small">Décisions et actions</b><ul>' + j.decisions.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul></div>' : '') + '</div></div>';
       }).join('') + '</div>' : '<div class="empty">Aucun compte rendu. Ajoutez le premier.</div>') + '</div></div>';
     E.$('#pjn-add', el).onclick = function () {
-      var u = E.session.user(), me = S.all('employes').find(function (e) { return u && E.norm(e.nom).indexOf(E.norm(u.name.split(' ').slice(-1)[0])) >= 0; });
+      var u = E.session.user(), me = S.all('employes').filter(function (e) { return siteOf(e) === siteOf(p); }).find(function (e) { return u && E.norm(e.nom).indexOf(E.norm(u.name.split(' ').slice(-1)[0])) >= 0; });
       U.formModal({ title: 'Nouveau compte rendu', sub: p.code + ' — ' + p.nom,
         fields: [{ name: 'd', label: 'Date', type: 'date', required: true }, { name: 'type', label: 'Type', type: 'select', options: ['Comité de pilotage', 'Réunion de chantier', 'Revue technique', 'Réception', 'Note'] }, { name: 'titre', label: 'Titre', required: true, full: true },
-          { name: 'auteur', label: 'Rédacteur', type: 'select', options: empOpts() }, { name: 'texte', label: 'Compte rendu', type: 'textarea', required: true }, { name: 'decisions', label: 'Décisions / actions (une par ligne)', type: 'textarea' }],
+          { name: 'auteur', label: 'Rédacteur', type: 'select', options: empOpts(siteOf(p)) }, { name: 'texte', label: 'Compte rendu', type: 'textarea', required: true }, { name: 'decisions', label: 'Décisions / actions (une par ligne)', type: 'textarea' }],
         values: { d: today(), type: 'Réunion de chantier', auteur: me ? me.id : p.responsable },
         onSubmit: function (v) {
           p.journal = p.journal || [];
@@ -619,30 +654,37 @@
         U.toast(nv ? 'Projet visible sur la page Projets du site public' : 'Projet retiré du site public'); refresh();
       } }] });
   }
-  function projectFields() {
-    return [{ name: 'code', label: 'Code court', required: true, placeholder: 'Ex. QUAI-P2' }, { name: 'statut', label: 'Statut', type: 'select', options: STATUTS },
-      { name: 'nom', label: 'Intitulé du projet', required: true, full: true }, { name: 'partenaire', label: 'Partenaire / entreprise', placeholder: 'Ex. Estuaire Marine Services' },
-      { name: 'responsable', label: 'Responsable', type: 'select', options: empOpts() }, { name: 'debut', label: 'Début', type: 'date', required: true }, { name: 'fin', label: 'Fin prévue', type: 'date', required: true },
+  function projectFields(site, withSite) {
+    return [{ name: 'code', label: 'Code court', required: true, placeholder: site === 'POG' ? 'Ex. QUAI-B' : 'Ex. QUAI-P2' }, { name: 'statut', label: 'Statut', type: 'select', options: STATUTS },
+      { name: 'nom', label: 'Intitulé du projet', required: true, full: true },
+      withSite ? { name: 'site', label: 'Site', type: 'select', options: [{ v: 'OWE', l: 'Libreville (Owendo)' }, { v: 'POG', l: 'Port-Gentil' }] } : null,
+      { name: 'partenaire', label: 'Partenaire / entreprise', placeholder: 'Ex. Estuaire Marine Services' },
+      { name: 'responsable', label: 'Responsable', type: 'select', options: empOpts(site) }, { name: 'debut', label: 'Début', type: 'date', required: true }, { name: 'fin', label: 'Fin prévue', type: 'date', required: true },
       { name: 'meteo', label: 'Météo projet', type: 'select', options: [{ v: 'soleil', l: 'Au vert' }, { v: 'nuage', l: 'Vigilance' }, { v: 'orage', l: 'Critique' }] }, { name: 'budget', label: 'Budget (FCFA)', type: 'money' },
-      { name: 'resume', label: 'Résumé (affiché sur le site si le projet est publié)', type: 'textarea' }];
+      { name: 'resume', label: 'Résumé (affiché sur le site si le projet est publié)', type: 'textarea' }].filter(Boolean);
   }
   function newProject() {
-    U.formModal({ title: 'Nouveau projet', sub: 'Le projet est créé en interne ; vous pourrez le publier sur le site ensuite.', okLabel: 'Créer le projet', fields: projectFields(),
-      values: { statut: 'Études', debut: today(), fin: E.addDays(today(), 365), meteo: 'soleil', responsable: M(0) },
+    /* espace de site : projet du site actif ; vue globale : choix du site */
+    var site0 = sc() || 'OWE';
+    var m = U.formModal({ title: 'Nouveau projet', sub: (sc() ? E.SPACES[sc()].court + ' · ' : '') + 'Le projet est créé en interne ; vous pourrez le publier sur le site ensuite.', okLabel: 'Créer le projet', fields: projectFields(site0, !sc()),
+      values: { statut: 'Études', debut: today(), fin: E.addDays(today(), 365), meteo: 'soleil', responsable: (empOpts(site0)[0] || {}).v || '', site: site0 },
       onSubmit: function (v) {
         if (v.fin <= v.debut) { U.toast('La date de fin doit suivre la date de début.', 'err'); return false; }
+        var site = sc() || v.site || 'OWE';
         var a = mIdx(v.debut), b = mIdx(v.fin), q = function (f) { return ymOf(Math.round(a + (b - a) * f)); };
-        var p = { id: nextId(), code: String(v.code).toUpperCase(), nom: v.nom, public: false, resume: v.resume || '', partenaire: v.partenaire || '', debut: v.debut, fin: v.fin, avancement: 0, statut: v.statut, budget: +v.budget || 0, engage: 0, chef: 'Service technique',
+        var p = { id: nextId(), site: site, code: String(v.code).toUpperCase(), nom: v.nom, public: false, resume: v.resume || '', partenaire: v.partenaire || '', debut: v.debut, fin: v.fin, avancement: 0, statut: v.statut, budget: +v.budget || 0, engage: 0, chef: site === 'POG' ? 'Agence de Port-Gentil' : 'Service technique',
           responsable: v.responsable, equipe: [v.responsable], meteo: v.meteo, jalons: [{ d: v.debut, t: 'Lancement du projet', fait: false }], taches: [], risques: [], journal: [], documents: [],
           budgetLignes: [{ lot: 'Budget global', budget: +v.budget || 0, engage: 0, facture: 0 }],
           courbe: { prevu: [[ymOf(a), 0], [q(.25), 12], [q(.5), 45], [q(.75), 82], [ymOf(b), 100]], reel: [[ymOf(a), 0]] } };
-        all().push(p); S.save();
-        E.log('Projet créé', p.id + ' — ' + p.nom, 'projets'); E.notify('Nouveau projet créé', p.code + ' — ' + p.nom, '#/projets/' + p.id, 'blue');
+        S.add(COL, p);
+        E.log('Projet créé', p.id + ' — ' + p.nom + ' · ' + SITE_L[site], 'projets'); E.notify('Nouveau projet créé', p.code + ' — ' + p.nom, '#/projets/' + p.id, 'blue');
         U.toast('Projet ' + p.id + ' créé'); E.go('projets/' + p.id + '/taches');
       } });
+    var ss = m && m.el && m.el.querySelector('#f_site');
+    if (ss) ss.onchange = function () { m.el.querySelector('#f_responsable').innerHTML = empOpts(ss.value).map(function (o) { return '<option value="' + esc(o.v) + '">' + esc(o.l) + '</option>'; }).join(''); };
   }
   function editProject(p) {
-    U.formModal({ title: 'Modifier le projet', sub: p.id + (p.public ? ' · visible sur le site public' : ''), fields: projectFields(), values: p,
+    U.formModal({ title: 'Modifier le projet', sub: p.id + (sc() ? '' : ' · ' + SITE_L[siteOf(p)]) + (p.public ? ' · visible sur le site public' : ''), fields: projectFields(siteOf(p), false), values: p,
       onSubmit: function (v) {
         if (v.fin <= v.debut) { U.toast('La date de fin doit suivre la date de début.', 'err'); return false; }
         var patch = { code: String(v.code).toUpperCase(), nom: v.nom, statut: v.statut, partenaire: v.partenaire, responsable: v.responsable, debut: v.debut, fin: v.fin, meteo: v.meteo, resume: v.resume };
@@ -675,7 +717,7 @@
       if (prof === 'admin' || prof === 'technique') {
         all().forEach(function (p) {
           overdueJalons(p).forEach(function (j) { out.push({ title: p.code + ' · Jalon dépassé : ' + j.t, sub: 'Prévu le ' + F.date(j.d) + ' · à confirmer ou replanifier', date: j.d, href: '#/projets/' + p.id + '/jalons', tone: 'red' }); });
-          lateTasks(p).forEach(function (x) { out.push({ title: p.code + ' · Tâche en retard : ' + x.t, sub: 'Fin prévue ' + F.date(x.e) + ' · ' + x.p + ' % réalisé · ' + E.empName(x.resp), date: x.e, href: '#/projets/' + p.id + '/taches', tone: 'orange' }); });
+          lateTasks(p).forEach(function (x) { out.push({ title: p.code + ' · Tâche en retard : ' + x.t, sub: 'Fin prévue ' + F.date(x.e) + ' · ' + x.p + ' % réalisé · ' + empNom(x.resp), date: x.e, href: '#/projets/' + p.id + '/taches', tone: 'orange' }); });
         });
       }
       if (prof === 'admin' || prof === 'finance') {

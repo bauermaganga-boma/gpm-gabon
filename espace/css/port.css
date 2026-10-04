@@ -280,3 +280,12 @@
   .ter-stats.sm{grid-template-columns:repeat(3,minmax(0,1fr))}
   td.ter-hm,th.ter-hm{display:none!important}
 }
+
+/* ======================================================= espaces par site : bandeau du port actif (escales, terminal) */
+.esc-port{display:inline-flex;align-items:center;gap:8px;min-width:0;padding:6px 12px;border-radius:999px;background:var(--blue-bg,#eef3fa);border:1px solid var(--line-2);font-size:13px;flex-wrap:wrap}
+.esc-port svg{width:15px;height:15px;color:#3a75c4;flex:none}
+.esc-port b{color:var(--navy,#0b3a6e);font-weight:700}
+.esc-port span{color:var(--ink-3,#7a879a);font-size:12px}
+body[data-space="POG"] .esc-port svg{color:#009e60}
+body[data-space="POG"] .esc-port{background:#ecf8f2;border-color:#cdeedd}
+@media (max-width:640px){ .esc-port{border-radius:12px;width:100%} }

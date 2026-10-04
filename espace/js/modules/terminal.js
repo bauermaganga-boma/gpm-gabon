@@ -169,15 +169,19 @@
   var TABS = [{ k: 'parc', l: 'Occupation du parc' }, { k: 'cadences', l: 'Cadences des grues' }, { k: 'conteneurs', l: 'Conteneurs' }, { k: 'gate', l: 'Gate' }, { k: 'entrepots', l: 'Magasin & parc véhicules' }, { k: 'alertes', l: 'Stationnement > 10 j' }];
   var state = { tab: 'parc', site: 'OWE', q: '', fSt: 'parc', fSens: '' };
 
+  /* En espace de site : parc du site actif uniquement (pas de bascule Owendo / Port-Gentil). */
+  function tabsFor() { return E.scope() === 'POG' ? TABS.filter(function (t) { return t.k !== 'cadences'; }) : TABS; }
   function render(view, params) {
-    var p0 = params[0], openC = null;
+    var p0 = params[0], openC = null, sc = E.scope();
+    if (sc) state.site = sc;
+    if (sc === 'POG' && (state.tab === 'cadences' || p0 === 'cadences')) { state.tab = 'parc'; if (p0 === 'cadences') p0 = 'parc'; }
     if (p0 === 'escale' && params[1]) { state.tab = 'conteneurs'; state.q = params[1]; state.fSt = ''; var es = S.get('escales', params[1]); if (es) state.site = es.site; }
     else if (p0 === 'conteneurs' && params[1]) { state.tab = 'conteneurs'; openC = params[1]; var c0 = S.get('conteneurs', openC); if (c0) state.site = c0.site; }
     else if (p0 && TABS.some(function (t) { return t.k === p0; })) state.tab = p0;
     var sf = siteFill(state.site), list = siteCtns(), park = onPark(list), al = alertes(state.site);
     var gToday = S.all('mouvementsTerminal').filter(function (m) { return m.site === state.site && String(m.date).slice(0, 10) === E.today(); });
     var head =
-      '<div class="ter-bar"><div class="chips" id="tr-site">' + [['OWE', 'Owendo'], ['POG', 'Port-Gentil']].map(function (c) { return '<button class="chip' + (state.site === c[0] ? ' is-active' : '') + '" data-k="' + c[0] + '">' + E.icon('pin').replace('<svg ', '<svg style="width:13px;height:13px;vertical-align:-2px;margin-right:4px" ') + c[1] + '</button>'; }).join('') + '</div><span class="spacer"></span>' +
+      '<div class="ter-bar">' + (sc ? '<div class="esc-port">' + E.icon('pin') + '<b>' + esc(E.siteName(sc)) + '</b><span>' + (sc === 'POG' ? 'parc conteneurs, magasin et parc offshore' : 'terminal à conteneurs, magasin cale et parc véhicules') + '</span></div>' : '<div class="chips" id="tr-site">' + [['OWE', 'Owendo'], ['POG', 'Port-Gentil']].map(function (c) { return '<button class="chip' + (state.site === c[0] ? ' is-active' : '') + '" data-k="' + c[0] + '">' + E.icon('pin').replace('<svg ', '<svg style="width:13px;height:13px;vertical-align:-2px;margin-right:4px" ') + c[1] + '</button>'; }).join('') + '</div>') + '<span class="spacer"></span>' +
       '<button class="btn" id="tr-out">' + E.icon('logout') + 'Sortie gate</button><button class="btn primary" id="tr-in">' + E.icon('plus') + 'Entrée gate</button></div>' +
       '<div class="grid g4 ter-kpis">' +
         U.kpi({ label: 'Occupation du parc', value: F.num(sf.pct), unit: '%', icon: 'container', tone: sf.pct >= 85 ? 'red' : sf.pct >= 70 ? 'orange' : 'green', foot: F.num(sf.evp) + ' EVP sur ' + F.num(sf.cap) + ' EVP de capacité (démo)' }) +
@@ -186,8 +190,8 @@
         U.kpi({ label: 'Mouvements du jour', value: gToday.length, icon: 'truck', tone: 'violet', foot: gToday.filter(function (m) { return m.type === 'Entrée gate'; }).length + ' entrées · ' + gToday.filter(function (m) { return m.type === 'Sortie gate'; }).length + ' sorties gate · ' + gToday.filter(function (m) { return m.type === 'Débarquement' || m.type === 'Embarquement'; }).length + ' bord' }) +
       '</div>';
     var counts = { conteneurs: park.length, alertes: al.length || null };
-    view.innerHTML = head + U.tabs(TABS.map(function (t) { return { k: t.k, l: t.l, n: counts[t.k] }; }), state.tab, function (k) { state.tab = k; E.go('terminal/' + k); }) + '<div id="tr-body"></div>';
-    view.querySelector('#tr-site').addEventListener('click', function (ev) { var b = ev.target.closest('.chip'); if (b) { state.site = b.dataset.k; E.rerender(); } });
+    view.innerHTML = head + U.tabs(tabsFor().map(function (t) { return { k: t.k, l: t.l, n: counts[t.k] }; }), state.tab, function (k) { state.tab = k; E.go('terminal/' + k); }) + '<div id="tr-body"></div>';
+    var trSite = view.querySelector('#tr-site'); if (trSite) trSite.addEventListener('click', function (ev) { var b = ev.target.closest('.chip'); if (b) { state.site = b.dataset.k; E.rerender(); } });
     view.querySelector('#tr-in').onclick = function () { gateIn(); };
     view.querySelector('#tr-out').onclick = function () { gateOut(); };
     var body = view.querySelector('#tr-body');
@@ -249,7 +253,7 @@
 
   /* ---------- cadences ---------- */
   function vCad(el) {
-    if (state.site === 'POG') { el.innerHTML = '<div class="card"><div class="empty">' + E.icon('crane') + '<div><b>Pas de grue mobile portuaire suivie à Port-Gentil</b></div><div class="small">Les opérations y sont réalisées aux apparaux de bord (démonstration). Sélectionnez Owendo pour suivre les cadences des 3 grues mobiles.</div></div></div>'; return; }
+    if (state.site === 'POG') { el.innerHTML = '<div class="card"><div class="empty">' + E.icon('crane') + '<div><b>Pas de grue mobile portuaire suivie à Port-Gentil</b></div><div class="small">Les opérations y sont réalisées aux apparaux de bord (démonstration).' + (E.scope() ? '' : ' Sélectionnez Owendo pour suivre les cadences des 3 grues mobiles.') + '</div></div></div>'; return; }
     var grues = S.all('flotte').filter(function (f) { return f.type === 'Grue mobile portuaire'; });
     var hours = []; var now = new Date(); for (var i = 11; i >= 0; i--) { var d = new Date(now.getTime() - (i + 1) * 36e5); hours.push({ date: E.iso(d), heure: pad(d.getHours()) }); }
     var val = function (g, h) { var r = cad().filter(function (c) { return c.grue === g && c.date === h.date && c.heure === h.heure; }); return sum(r, 'mvts'); };
@@ -404,7 +408,7 @@
         { name: 'poids', label: 'Poids brut (t)', type: 'number', step: '0.1' },
         { name: 'plomb', label: 'N° de plomb', placeholder: 'SL…' },
         { name: 'emplacement', label: 'Emplacement proposé', help: 'calculé selon le type de conteneur — modifiable' }
-      ], values: { taille: 40, type: 'DRY', etat: 'Plein', sens: 'Export', client: 'C-01', escale: escs[0] ? escs[0].id : '' },
+      ], values: { taille: 40, type: 'DRY', etat: 'Plein', sens: 'Export', client: state.site === 'POG' ? 'C-06' : 'C-01', escale: escs[0] ? escs[0].id : '' },
       onSubmit: function (v) {
         var id = String(v.id).toUpperCase().replace(/[\s-]/g, '');
         if (!/^[A-Z]{4}\d{7}$/.test(id)) { U.toast('Format attendu : 4 lettres + 7 chiffres.', 'err'); return false; }
@@ -523,7 +527,7 @@
       if (!(surf > 0)) { U.toast('Indiquez la surface occupée.', 'err'); return false; }
       var used = sum(S.all('entreposage').filter(function (l) { return l.site === state.site && l.zone === zone && l.statut === 'En stock'; }), 'surface'), cap = zone === 'Magasin cale' ? info.magasin : info.vehicules;
       if (used + surf > cap) { U.toast('Capacité dépassée : ' + F.num(cap - used) + ' m² disponibles.', 'err'); return false; }
-      var n = Math.max.apply(null, S.all('entreposage').map(function (l) { return +String(l.id).slice(-3) || 0; }).concat([310])) + 1;
+      var n = Math.max.apply(null, S.raw('entreposage').map(function (l) { return +String(l.id).slice(-3) || 0; }).concat([310])) + 1;
       S.add('entreposage', { id: 'LOT-2026-' + n, site: state.site, zone: zone, libelle: v.libelle, client: v.client, escale: v.escale, quantite: +v.quantite, unite: v.unite, surface: surf, entree: E.today(), statut: 'En stock' });
       E.log('Entrée ' + zone.toLowerCase() + ' LOT-2026-' + n, v.libelle + ' · ' + F.num(surf) + ' m²', 'terminal'); U.toast('Lot enregistré — ' + F.num(surf) + ' m²'); E.rerender();
     } });
@@ -571,10 +575,12 @@
     seed: seed,
     render: render,
     summary: function () {
-      var f = siteFill('OWE'), today = cad().filter(function (c) { return c.date === E.today(); });
+      var sc = E.scope(), today = cad().filter(function (c) { return c.date === E.today(); });
+      var f = sc ? siteFill(sc) : (function () { var a = siteFill('OWE'), b = siteFill('POG'), cap = a.cap + b.cap; return { evp: a.evp + b.evp, cap: cap, pct: cap ? (a.evp + b.evp) / cap * 100 : 0 }; })();
+      var parc = onPark().length;
       return [
-        { label: 'Occupation du parc d\'Owendo', value: F.num(f.pct), unit: '%', icon: 'container', tone: f.pct > 85 ? 'red' : 'blue', foot: F.num(f.evp) + ' EVP sur parc · ' + alertes().length + ' conteneur(s) > 10 j', href: '#/terminal/parc' },
-        { label: 'Cadence moyenne des grues', value: today.length ? F.num(sum(today, 'mvts') / today.length, 1) : '—', unit: 'mvts/h', icon: 'crane', tone: today.length && sum(today, 'mvts') / today.length >= OBJ_MIN ? 'green' : 'orange', foot: 'objectif ' + OBJ_MIN + '–' + OBJ_MAX + ' · aujourd\'hui', href: '#/terminal/cadences' }
+        { label: sc === 'POG' ? 'Occupation du parc de Port-Gentil' : sc === 'OWE' ? 'Occupation du parc d\'Owendo' : 'Occupation des parcs à conteneurs', value: F.num(f.pct), unit: '%', icon: 'container', tone: f.pct > 85 ? 'red' : 'blue', foot: F.num(f.evp) + ' EVP sur parc · ' + alertes().length + ' conteneur(s) > 10 j', href: '#/terminal/parc' },
+        sc === 'POG' ? { label: 'Conteneurs sur parc', value: String(parc), icon: 'layers', tone: 'blue', foot: 'opérations aux apparaux de bord · pas de grue mobile', href: '#/terminal/conteneurs' } : { label: 'Cadence moyenne des grues', value: today.length ? F.num(sum(today, 'mvts') / today.length, 1) : '—', unit: 'mvts/h', icon: 'crane', tone: today.length && sum(today, 'mvts') / today.length >= OBJ_MIN ? 'green' : 'orange', foot: 'objectif ' + OBJ_MIN + '–' + OBJ_MAX + ' · aujourd\'hui', href: '#/terminal/cadences' }
       ];
     },
     pending: function () {

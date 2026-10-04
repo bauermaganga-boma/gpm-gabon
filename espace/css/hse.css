@@ -277,3 +277,26 @@
 .hse-badgecard__f{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 14px;border-top:1px dashed var(--line);background:#f8fafc;flex-wrap:wrap}
 .hse-surchips{flex-wrap:wrap}
 @media (max-width:640px){.hse-isps{margin:8px 0;width:100%;justify-content:flex-start}.hse-isps span{max-width:none}}
+
+/* ---------- espaces par site (Owendo / Port-Gentil) ---------- */
+/* bandeau : les deux niveaux ISPS en vue globale */
+.hse-isps--dual{gap:10px;flex-wrap:wrap;white-space:normal}
+.hse-isps--dual i{display:flex;align-items:center;gap:6px;font-style:normal}
+.hse-isps--dual i b{width:28px;height:28px;font-size:17px}
+.hse-isps--dual i.n2 b{background:var(--orange)}.hse-isps--dual i.n3 b{background:var(--red)}
+.hse-isps--dual em{display:flex;flex-direction:column;line-height:1.1;font-size:12px}
+.hse-isps--dual em small{font-weight:500;font-size:11px;color:var(--ink-3)}
+/* sélecteur du plan (vue globale) */
+.hse-mapsel{margin-bottom:10px}
+.hse-mapsel .chip{display:inline-flex;align-items:center;gap:5px}
+.hse-mapsel .chip svg{width:14px;height:14px}
+.hse-mapsel .chip b{background:var(--navy);color:#fff;border-radius:10px;padding:0 6px;font-size:11px}
+.hse-mapsel .chip.is-active b{background:var(--yellow);color:var(--navy)}
+/* cartes de niveau par port (vue globale) */
+.hse-niv__port{display:inline-flex;align-items:center;gap:5px;color:var(--navy)}
+.hse-niv__port svg{width:15px;height:15px}
+.hse-niv--dual .hse-niv__lvl>div{padding:6px}
+.hse-niv--dual .hse-niv__lvl>div b{font-size:20px}
+.hse-niv__more{margin-top:10px;font-size:13px}
+.hse-niv__more summary{cursor:pointer;font-weight:600;color:var(--ink-2)}
+@media (max-width:640px){.hse-isps--dual{gap:8px 14px}.hse-mapsel .chip{font-size:12px}}

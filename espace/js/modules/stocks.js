@@ -17,15 +17,25 @@
 
   var TYPES_S = { 'Entrée': { s: 1, tone: 'green' }, 'Sortie': { s: -1, tone: 'orange' }, 'Retour': { s: 1, tone: 'blue' }, 'Inventaire': { s: 1, tone: 'violet' } };
   var MAGASINS = { OWE: 'Magasin central — Owendo', POG: 'Magasin de Port-Gentil' };
-  var CAT_ICON = { 'Pièces de grues': 'crane', 'Engins de parc': 'container', 'Amarrage & accastillage': 'anchor', 'Levage & élingage': 'crane', 'Huiles & lubrifiants': 'drop', 'Pièces navales': 'tug', 'EPI & sécurité': 'helmet', 'Antipollution': 'wave', 'Électricité': 'gauge' };
+  var CAT_ICON = { 'Soutage & eau douce': 'drop', 'Pièces de grues': 'crane', 'Engins de parc': 'container', 'Amarrage & accastillage': 'anchor', 'Levage & élingage': 'crane', 'Huiles & lubrifiants': 'drop', 'Pièces navales': 'tug', 'EPI & sécurité': 'helmet', 'Antipollution': 'wave', 'Électricité': 'gauge' };
 
   /* ------------------------------------------------------------------ petits utilitaires */
   function pad(n) { return String(n).padStart(2, '0'); }
   function signed(n, dec) { return (n > 0 ? '+' : n < 0 ? '−' : '') + F.num(Math.abs(n), dec); }
-  function empIdByName(part) { var e = S.all('employes').find(function (x) { return x.nom.indexOf(part) === 0; }); return e ? e.id : ''; }
-  function empOpts() { return S.all('employes').map(function (e) { return { v: e.id, l: e.nom + ' — ' + e.poste }; }); }
+  /* espace actif : '' (vue globale DG), 'OWE' ou 'POG' */
+  function sc() { return E.scope(); }
+  function siteOf(a) { return (a && a.site) || 'OWE'; }
+  function magName(site) { return MAGASINS[site || 'OWE'] || MAGASINS.OWE; }
+  function empIdByName(part, site) { var e = S.raw('employes').find(function (x) { return x.nom.indexOf(part) === 0 && (!site || (x.site || 'OWE') === site); }); return e ? e.id : ''; }
+  function empNom(id) { var e = S.raw('employes').find(function (x) { return x.id === id; }); return e ? e.nom : id || '—'; }
+  /* employés proposés : ceux du site du document (vue globale : site de l'article) */
+  function empOpts(site) { return S.raw('employes').filter(function (e) { return e.statut !== 'Sorti' && (!site || (e.site || 'OWE') === site); }).map(function (e) { return { v: e.id, l: e.nom + ' — ' + e.poste }; }); }
+  /* demandeur / magasinier par défaut selon le site */
+  var DEF_EMP = { OWE: { mag: 'Mengue', tech: 'Boussougou' }, POG: { mag: 'Mamfoumbi', tech: 'Kombila' } };
+  function defEmp(site, k) { var s = site || sc() || 'OWE'; return empIdByName((DEF_EMP[s] || DEF_EMP.OWE)[k], s) || (empOpts(s)[0] || {}).v || ''; }
   function flotte() { return S.all('flotte'); }
-  function eqName(id) { var f = S.get('flotte', id); return f ? f.nom : id; }
+  function eqName(id) { var f = S.raw('flotte').find(function (x) { return x.id === id; }); return f ? f.nom : id; }
+  function getArt(id) { return S.get('articles', id); }
 
   /* ------------------------------------------------------------------ calculs magasin */
   function articles() { return S.all('articles'); }
@@ -58,7 +68,8 @@
   /* ------------------------------------------------------------------ données d'exemple */
   function seed() {
     var t = E.today(), D = function (n) { return E.addDays(t, n); }, Y = E.TODAY.getFullYear();
-    var GR = ['GR-01', 'GR-02', 'GR-03'], RS = ['RS-01', 'RS-02', 'RS-03'], RM = ['RM-01', 'RM-02', 'RM-03'], VP = ['VP-01', 'VP-02'];
+    /* flotte d'Owendo (les équipements de Port-Gentil — RS-03, BS-01, RM-03 — ont leurs propres articles plus bas) */
+    var GR = ['GR-01', 'GR-02', 'GR-03'], RS = ['RS-01', 'RS-02'], RM = ['RM-01', 'RM-02'], VP = ['VP-01', 'VP-02'];
     /* [désignation, catégorie, unité, qté, mini, maxi, PU, fournisseur, critique, emplacement, conso/an, magasin, équipements] */
     var A = [
       ['Câble de levage antigiratoire Ø 30 mm (grue mobile)', 'Pièces de grues', 'm', 180, 220, 600, 38000, 'F-002', 1, 'A-01-1', 420, 'OWE', GR],
@@ -95,16 +106,31 @@
       ['Prise pour conteneur frigorifique 32 A (reefer)', 'Électricité', 'u', 12, 10, 40, 165000, 'F-004', 0, 'I-02-1', 24, 'OWE', []],
       ['Filtre à air moteur de grue (élément principal)', 'Pièces de grues', 'u', 9, 6, 20, 92000, 'F-002', 0, 'A-02-3', 18, 'OWE', GR],
       ['Kit de joints de vérin de levée (reach stacker)', 'Engins de parc', 'kit', 2, 2, 6, 310000, 'F-008', 0, 'PG-B-01', 4, 'POG', ['RS-03']],
-      ['Filtre gasoil séparateur d\'eau (remorqueur Port-Gentil)', 'Pièces navales', 'u', 6, 4, 16, 54000, 'F-001', 0, 'PG-F-01', 16, 'POG', ['RM-03']]
+      ['Filtre gasoil séparateur d\'eau (remorqueur Port-Gentil)', 'Pièces navales', 'u', 6, 4, 16, 54000, 'F-001', 0, 'PG-F-01', 16, 'POG', ['RM-03']],
+      /* Magasin de Port-Gentil : soutage, eau douce, offshore, remorqueur Cap Lopez, barge Mandji, reach stacker RS-03 */
+      ['Flexible de soutage DN 100 certifié (15 m)', 'Soutage & eau douce', 'u', 3, 2, 6, 2850000, 'F-005', 1, 'PG-S-01', 3, 'POG', ['BS-01']],
+      ['Joints de raccord rapide de soutage (lot de 10)', 'Soutage & eau douce', 'lot', 4, 3, 10, 145000, 'F-005', 0, 'PG-S-02', 8, 'POG', ['BS-01']],
+      ['Kit de joints du compteur volumétrique de soutage', 'Soutage & eau douce', 'kit', 1, 2, 4, 680000, 'F-004', 1, 'PG-S-03', 3, 'POG', ['BS-01']],
+      ['Flexible eau douce alimentaire DN 65 (20 m)', 'Soutage & eau douce', 'u', 5, 3, 10, 420000, 'F-005', 0, 'PG-S-04', 6, 'POG', []],
+      ['Cartouche de filtration eau potable 5 µm', 'Soutage & eau douce', 'u', 18, 12, 48, 38000, 'F-007', 0, 'PG-S-05', 60, 'POG', []],
+      ['Élingue offshore certifiée DNV 2.7-1 (jeu 4 brins)', 'Levage & élingage', 'jeu', 2, 2, 6, 1650000, 'F-006', 1, 'PG-D-01', 4, 'POG', []],
+      ['Manille offshore haute résistance 25 t', 'Amarrage & accastillage', 'u', 12, 8, 30, 210000, 'F-005', 0, 'PG-C-01', 14, 'POG', []],
+      ['Aussière de remorquage HMPE Ø 40 mm (Cap Lopez)', 'Amarrage & accastillage', 'u', 1, 1, 3, 6800000, 'F-005', 1, 'PG-C-02', 2, 'POG', ['RM-03']],
+      ['Huile moteur marine 15W40 (fût 208 L)', 'Huiles & lubrifiants', 'fût', 3, 3, 8, 610000, 'F-003', 0, 'PG-E-01', 9, 'POG', ['RM-03', 'BS-01']],
+      ['Pneu reach stacker 18.00-25 40 PR', 'Engins de parc', 'u', 2, 2, 6, 1650000, 'F-008', 1, 'PG-B-02', 4, 'POG', ['RS-03']],
+      ['Filtre à huile moteur reach stacker', 'Engins de parc', 'u', 8, 4, 16, 28000, 'F-008', 0, 'PG-B-03', 16, 'POG', ['RS-03']],
+      ['Gilet de sauvetage 150 N', 'EPI & sécurité', 'u', 30, 20, 60, 32000, 'F-007', 1, 'PG-G-01', 36, 'POG', []],
+      ['Combinaison antistatique ignifugée (soutage)', 'EPI & sécurité', 'u', 9, 10, 30, 85000, 'F-007', 1, 'PG-G-02', 18, 'POG', []],
+      ['Anodes zinc de coque (lot de 10)', 'Pièces navales', 'lot', 3, 2, 6, 210000, 'F-001', 0, 'PG-F-02', 4, 'POG', ['RM-03', 'BS-01']]
     ];
     var arts = A.map(function (r, i) {
       return { id: 'ART-' + (1001 + i), designation: r[0], categorie: r[1], unite: r[2], qte: r[3], min: r[4], max: r[5], emplacement: r[9], pu: r[6], fournisseurId: r[7], critique: !!r[8], consoAn: r[10], site: r[11], equipements: r[12], dernierInventaire: D(-(40 + (i * 37) % 170)) };
     });
-    arts.forEach(function (a) { if (a.id === 'ART-1021') a.daEnCours = 'DA-' + Y + '-0112'; });
-    var invDates = { 'ART-1024': -6, 'ART-1002': -6, 'ART-1031': -5, 'ART-1016': -3, 'ART-1013': -1, 'ART-1018': -1 };
+    arts.forEach(function (a) { if (a.id === 'ART-1021') a.daEnCours = 'DA-' + Y + '-0112'; if (a.id === 'ART-1038') a.daEnCours = 'DA-' + Y + '-0119'; });
+    var invDates = { 'ART-1024': -6, 'ART-1002': -6, 'ART-1031': -5, 'ART-1016': -3, 'ART-1013': -1, 'ART-1018': -1, 'ART-1047': -1, 'ART-1040': -2 };
     arts.forEach(function (a) { if (invDates[a.id] != null) a.dernierInventaire = D(invDates[a.id]); });
 
-    var mag = empIdByName('Mengue'), OT = function (n) { return 'OT-' + Y + '-0' + n; };
+    var mag = empIdByName('Mengue', 'OWE'), OT = function (n) { return 'OT-' + Y + '-0' + n; };
     var MS = [
       [-1, 'Sortie', 'ART-1007', 2, OT(517), 'Boussougou', 'RS-02 — entretien des 500 heures', 'RS-02'],
       [-1, 'Sortie', 'ART-1001', 40, OT(516), 'Boussougou', 'GR-02 — remplacement du câble de levage (usure)', 'GR-02'],
@@ -125,16 +151,26 @@
       [-18, 'Entrée', 'ART-1018', 12, 'BC-' + Y + '-0112', 'Mengue', 'Réception complète', ''],
       [-20, 'Sortie', 'ART-1023', 6, 'Dotation EPI', 'Bekale', 'Renouvellement gilets — remorqueur Mondah', 'RM-02'],
       [-22, 'Sortie', 'ART-1031', 120, OT(471), 'Mayila', 'Alimentation du nouveau poste de garde', ''],
-      [-25, 'Sortie', 'ART-1022', 1, OT(466), 'Kombila', 'Remorqueur Cap Lopez — anodes de coque', 'RM-03'],
-      [-28, 'Entrée', 'ART-1007', 30, 'BC-' + Y + '-0104', 'Mengue', 'Réception complète', '']
+      [-25, 'Sortie', 'ART-1049', 1, OT(466), 'Kombila', 'Remorqueur Cap Lopez — anodes de coque', 'RM-03'],
+      [-28, 'Entrée', 'ART-1007', 30, 'BC-' + Y + '-0104', 'Mengue', 'Réception complète', ''],
+      /* Port-Gentil */
+      [-1, 'Sortie', 'ART-1037', 2, OT(519), 'Ogandaga', 'Barge Mandji — remplacement des joints de raccord de soutage', 'BS-01'],
+      [-3, 'Sortie', 'ART-1040', 6, OT(515), 'Nzamba', 'Poste d\'avitaillement en eau douce — remplacement des cartouches', ''],
+      [-4, 'Entrée', 'ART-1042', 6, 'BC-' + Y + '-0151', 'Mamfoumbi', 'Réception complète', ''],
+      [-6, 'Sortie', 'ART-1041', 1, OT(511), 'Mamfoumbi', 'Levage de colis offshore — PSV Offshore Mandji (quai B)', ''],
+      [-9, 'Sortie', 'ART-1046', 2, OT(506), 'Mamfoumbi', 'RS-03 — entretien des 250 heures', 'RS-03'],
+      [-11, 'Sortie', 'ART-1044', 1, OT(497), 'Kombila', 'Remorqueur Cap Lopez — appoint d\'huile des moteurs', 'RM-03'],
+      [-14, 'Sortie', 'ART-1048', 4, 'Dotation EPI', 'Nzamba', 'Dotation équipe de soutage (appontement)', ''],
+      [-19, 'Sortie', 'ART-1035', 2, OT(476), 'Kombila', 'Remorqueur Cap Lopez — filtres gasoil', 'RM-03']
     ];
-    var mvtS = MS.map(function (r, i) { var a = arts.find(function (x) { return x.id === r[2]; }); return { id: 'MS-' + String(i + 1).padStart(4, '0'), date: D(r[0]), type: r[1], articleId: r[2], qte: r[3], pu: a.pu, ref: r[4], demandeur: empIdByName(r[5]), commentaire: r[6], equipement: r[7] }; });
+    var mvtS = MS.map(function (r, i) { var a = arts.find(function (x) { return x.id === r[2]; }); return { id: 'MS-' + String(i + 1).padStart(4, '0'), date: D(r[0]), type: r[1], articleId: r[2], qte: r[3], pu: a.pu, ref: r[4], demandeur: empIdByName(r[5], a.site), commentaire: r[6], equipement: r[7], site: a.site }; });
 
     var INV = [
       ['INV-0006', -1, 'ART-1013', 18, 18, 'Validé'], ['INV-0005', -1, 'ART-1018', 23, 21, 'À valider'], ['INV-0004', -3, 'ART-1016', 9, 9, 'Validé'],
-      ['INV-0003', -5, 'ART-1031', 420, 420, 'Validé'], ['INV-0002', -6, 'ART-1002', 14, 14, 'Validé'], ['INV-0001', -6, 'ART-1024', 62, 58, 'Validé']
+      ['INV-0003', -5, 'ART-1031', 420, 420, 'Validé'], ['INV-0002', -6, 'ART-1002', 14, 14, 'Validé'], ['INV-0001', -6, 'ART-1024', 62, 58, 'Validé'],
+      ['INV-0008', -1, 'ART-1047', 30, 29, 'À valider'], ['INV-0007', -2, 'ART-1040', 18, 18, 'Validé']
     ];
-    var invs = INV.map(function (r) { var a = arts.find(function (x) { return x.id === r[2]; }); return { id: r[0], date: D(r[1]), articleId: r[2], theorique: r[3], reel: r[4], ecart: r[4] - r[3], valeurEcart: (r[4] - r[3]) * a.pu, compteur: mag, statut: r[5] }; });
+    var invs = INV.map(function (r) { var a = arts.find(function (x) { return x.id === r[2]; }); return { id: r[0], date: D(r[1]), articleId: r[2], theorique: r[3], reel: r[4], ecart: r[4] - r[3], valeurEcart: (r[4] - r[3]) * a.pu, compteur: a.site === 'POG' ? empIdByName('Mamfoumbi', 'POG') : mag, statut: r[5], site: a.site }; });
 
     return { articles: arts, mouvementsStock: mvtS, inventaires: invs };
   }
@@ -144,8 +180,8 @@
     if (!list.length) return '<div class="empty">Aucune alerte : tous les articles sont au-dessus de leur seuil.</div>';
     return '<div class="list ops-alerts">' + list.map(function (a) { return '<a class="list__item" href="' + a.href + '" style="color:inherit"><div class="list__icon tone-' + a.tone + '">' + E.icon(a.icon) + '</div><div class="list__body"><b>' + esc(a.title) + '</b><div class="small muted">' + esc(a.sub) + '</div></div></a>'; }).join('') + '</div>';
   }
-  function docHead(titre, num, date) {
-    return '<div class="doc__head"><div class="row" style="gap:12px"><img src="../assets/img/logo.png" alt="GPM"><div><b style="font-family:Sora,sans-serif;font-size:16px;color:var(--navy)">Gabon Port Management</b><div class="small muted">Ports d\'Owendo et de Port-Gentil<br>Service Achats & magasin</div></div></div>' +
+  function docHead(titre, num, date, site) {
+    return '<div class="doc__head"><div class="row" style="gap:12px"><img src="../assets/img/logo.png" alt="GPM"><div><b style="font-family:Sora,sans-serif;font-size:16px;color:var(--navy)">Gabon Port Management</b><div class="small muted">' + esc(site === 'POG' ? 'Port de Port-Gentil' : site === 'OWE' ? 'Port d\'Owendo (Libreville)' : 'Ports d\'Owendo et de Port-Gentil') + '<br>Service Achats & magasin</div></div></div>' +
       '<div style="text-align:right"><h4>' + esc(titre) + '</h4><div class="mono">' + esc(num) + '</div><div class="small muted">' + esc(date) + '</div></div></div>';
   }
   function printModal(title, html) {
@@ -163,9 +199,12 @@
     var tab = params[0] || 'apercu'; if (!TABS.some(function (t) { return t.k === tab; })) tab = 'apercu';
     var al = alerts(), ss = sousSeuil(), crit = ss.filter(function (a) { return a.critique; });
     var couvMoy = (function () { var l = articles().filter(function (a) { return a.consoAn; }); return l.length ? sum(l, function (a) { return Math.min(36, couvMois(a)); }) / l.length : 0; })();
-    var head = '<div class="grid g4 ops-kpis">' +
-      U.kpi({ label: 'Valeur du stock', value: F.short(valeurStock()), unit: 'FCFA', icon: 'box', tone: 'blue', foot: articles().length + ' références · ' + F.short(valeurStock(articles().filter(function (a) { return a.site === 'POG'; }))) + ' à Port-Gentil' }) +
-      U.kpi({ label: 'Articles sous seuil', value: ss.length, icon: 'alert', tone: ss.length ? 'orange' : 'green', foot: '<span class="' + (crit.length ? 'down' : 'up') + '">' + crit.length + ' critique(s)</span> pour la flotte et les grues' }) +
+    var s = sc();
+    if (s) state.site = '';
+    var head = (s ? '<div class="ops-note stk-mag" style="margin-bottom:14px">' + E.icon('box') + '<div><b>' + esc(magName(s)) + '</b> · ' + esc(E.SPACES[s].court) + (s === 'POG' ? ' — pièces du remorqueur Cap Lopez, de la barge de soutage Mandji et du reach stacker, consommables de soutage, d\'eau douce et d\'offshore.' : ' — pièces des grues mobiles, des reach stackers, des remorqueurs et vedettes, amarrage, EPI et consommables du terminal.') + '</div></div>' : '') +
+      '<div class="grid g4 ops-kpis">' +
+      U.kpi({ label: 'Valeur du stock', value: F.short(valeurStock()), unit: 'FCFA', icon: 'box', tone: 'blue', foot: articles().length + ' références · ' + (s ? esc(magName(s)) : F.short(valeurStock(articles().filter(function (a) { return a.site === 'POG'; }))) + ' à Port-Gentil') }) +
+      U.kpi({ label: 'Articles sous seuil', value: ss.length, icon: 'alert', tone: ss.length ? 'orange' : 'green', foot: '<span class="' + (crit.length ? 'down' : 'up') + '">' + crit.length + ' critique(s)</span> ' + (s === 'POG' ? 'pour la flotte et le soutage' : s === 'OWE' ? 'pour la flotte et les grues' : 'pour la flotte, les grues et le soutage') }) +
       U.kpi({ label: 'Couverture moyenne', value: F.num(couvMoy, 1), unit: 'mois', icon: 'clock', tone: 'violet', foot: 'rotation ' + F.num(rotation(), 1) + ' / an' }) +
       U.kpi({ label: 'Alertes actives', value: al.length, icon: 'bell', tone: al.length ? 'red' : 'green', foot: invAValider().length + ' écart(s) d\'inventaire à valider' }) +
       '</div>';
@@ -188,9 +227,9 @@
     var risk = flotte().map(function (f) { return { f: f, arts: artsOf(f.id), r: eqRisk(f.id) }; }).filter(function (x) { return x.arts.length; }).sort(function (a, b) { return b.r.length - a.r.length; }).slice(0, 6);
     el.innerHTML =
       '<div class="grid g-2-1">' +
-        '<div class="card"><div class="card__h"><h3>Valeur du stock par famille</h3><span class="sub">pièces de rechange et consommables portuaires</span><span class="spacer"></span><a class="btn sm ghost" href="#/stocks/magasin">' + E.icon('box') + 'Articles</a></div><div class="card__b">' +
+        '<div class="card"><div class="card__h"><h3>Valeur du stock par famille</h3><span class="sub">' + (sc() ? esc(magName(sc())) : 'pièces de rechange et consommables portuaires') + '</span><span class="spacer"></span><a class="btn sm ghost" href="#/stocks/magasin">' + E.icon('box') + 'Articles</a></div><div class="card__b">' +
           U.donut(catItems.slice(0, 7).concat(catItems.length > 7 ? [{ label: 'Autres', value: sum(catItems.slice(7), 'value') }] : []), { center: F.short(valeurStock()), sub: 'FCFA', money: true, size: 150 }) +
-          '<div class="ops-stat" style="margin-top:16px">' + Object.keys(MAGASINS).map(function (k) { var l = articles().filter(function (a) { return (a.site || 'OWE') === k; }); return '<div><span>' + esc(MAGASINS[k]) + '</span><b>' + F.short(valeurStock(l)) + '</b><span class="small muted">' + l.length + ' réf. · ' + l.filter(function (a) { return a.qte <= a.min; }).length + ' sous seuil</span></div>'; }).join('') + '</div></div></div>' +
+          (sc() ? '' : '<div class="ops-stat" style="margin-top:16px">' + Object.keys(MAGASINS).map(function (k) { var l = articles().filter(function (a) { return siteOf(a) === k; }); return '<div><span>' + esc(MAGASINS[k]) + '</span><b>' + F.short(valeurStock(l)) + '</b><span class="small muted">' + l.length + ' réf. · ' + l.filter(function (a) { return a.qte <= a.min; }).length + ' sous seuil</span></div>'; }).join('') + '</div>') + '</div></div>' +
         '<div class="card"><div class="card__h"><h3>Alertes</h3><span class="badge tone-red">' + alerts().length + '</span></div>' + alertsList(alerts()) + '</div>' +
       '</div>' +
       '<div class="grid g-2-1" style="margin-top:16px">' +
@@ -211,10 +250,10 @@
     var types = Object.keys(E.groupBy(flotte(), 'type'));
     var list = flotte().filter(function (f) { return !state.eqType || f.type === state.eqType; });
     el.innerHTML = '<div class="ops-toolbar"><div class="chips" id="eq-f"><button class="chip' + (!state.eqType ? ' is-active' : '') + '" data-k="">Tous les équipements</button>' + types.map(function (t) { return '<button class="chip' + (state.eqType === t ? ' is-active' : '') + '" data-k="' + esc(t) + '">' + esc(t) + '</button>'; }).join('') + '</div></div>' +
-      '<div class="alert tone-blue" style="margin-bottom:14px">' + E.icon('info') + '<div>Chaque article critique est relié aux équipements qu\'il permet de maintenir en service (grues mobiles, reach stackers, remorqueurs, vedettes, barge). Une pièce critique sous le seuil expose l\'équipement à une immobilisation prolongée, donc à des retards d\'escale.</div></div>' +
+      '<div class="alert tone-blue" style="margin-bottom:14px">' + E.icon('info') + '<div>Chaque article critique est relié aux équipements qu\'il permet de maintenir en service (' + (sc() === 'POG' ? 'remorqueur Cap Lopez, barge de soutage Mandji, reach stacker de Port-Gentil' : sc() === 'OWE' ? 'grues mobiles, reach stackers, remorqueurs et vedettes d\'Owendo' : 'grues mobiles, reach stackers, remorqueurs, vedettes, barge de soutage') + '). Une pièce critique sous le seuil expose l\'équipement à une immobilisation prolongée, donc à des retards d\'escale.</div></div>' +
       '<div class="ops-eqgrid">' + list.map(function (f) {
         var arts = artsOf(f.id), r = eqRisk(f.id);
-        return '<div class="card ops-eq"><div class="card__h"><div class="list__icon ' + (r.length ? 'tone-orange' : 'tone-green') + '">' + E.icon(/Grue/.test(f.type) ? 'crane' : /Engin/.test(f.type) ? 'container' : /Remorqueur/.test(f.type) ? 'tug' : 'ship') + '</div><div style="min-width:0"><h3>' + esc(f.nom) + '</h3><div class="sub">' + esc(f.id) + ' · ' + esc(f.type) + ' · ' + esc(E.siteName(f.site)) + '</div></div></div>' +
+        return '<div class="card ops-eq"><div class="card__h"><div class="list__icon ' + (r.length ? 'tone-orange' : 'tone-green') + '">' + E.icon(/Grue/.test(f.type) ? 'crane' : /Engin/.test(f.type) ? 'container' : /Remorqueur/.test(f.type) ? 'tug' : 'ship') + '</div><div style="min-width:0"><h3>' + esc(f.nom) + '</h3><div class="sub">' + esc(f.id) + ' · ' + esc(f.type) + (sc() ? '' : ' · ' + esc(E.siteName(f.site))) + '</div></div></div>' +
           (arts.length ? '<div class="list">' + arts.map(function (a) { var s = artStatut(a); return '<a class="list__item" href="#/stocks/magasin/' + a.id + '" style="color:inherit"><div class="list__body"><b class="small">' + esc(a.designation) + '</b>' + (a.critique ? ' <span class="badge tone-red plain">Critique</span>' : '') + '<div class="small muted">' + F.num(a.qte) + ' ' + esc(a.unite) + ' en stock · mini ' + a.min + '</div></div>' + U.badge(s, ART_TONE[s]) + '</a>'; }).join('') + '</div>' : '<div class="card__b small muted">Aucune pièce de rechange spécifique suivie au magasin.</div>') + '</div>';
       }).join('') + '</div>';
     el.querySelector('#eq-f').addEventListener('click', function (e) { var b = e.target.closest('.chip'); if (b) { state.eqType = b.dataset.k; vEquipements(el); } });
@@ -225,6 +264,7 @@
     return [
       { key: 'id', label: 'Référence', render: function (a) { return '<span class="mono">' + esc(a.id) + '</span>'; } },
       { key: 'designation', label: 'Désignation', render: function (a) { return '<b>' + esc(a.designation) + '</b>' + (a.critique ? ' <span class="badge tone-red plain">Critique</span>' : '') + '<div class="small muted">' + esc(a.categorie) + ' · ' + esc(fournNom(a.fournisseurId)) + '</div>'; }, csv: function (a) { return a.designation; } },
+      sc() ? null : { key: 'site', label: 'Magasin', render: function (a) { return '<span class="badge ' + (siteOf(a) === 'POG' ? 'tone-green' : 'tone-blue') + ' plain">' + (siteOf(a) === 'POG' ? 'Port-Gentil' : 'Owendo') + '</span>'; }, csv: function (a) { return magName(siteOf(a)); } },
       { key: 'emplacement', label: 'Emplacement', render: function (a) { return '<span class="mono">' + esc(a.emplacement) + '</span>'; } },
       { key: 'qte', label: 'Stock', num: 1, render: function (a) { var st = artStatut(a); return '<b class="' + (st === 'Rupture' || st === 'Sous seuil' ? 'ops-neg' : '') + '">' + F.num(a.qte) + '</b> <span class="small muted">' + esc(a.unite) + '</span>'; } },
       { key: 'minmax', label: 'Mini / maxi', num: 1, render: function (a) { return '<span class="small">' + F.num(a.min) + ' / ' + F.num(a.max) + '</span>'; }, csv: function (a) { return a.min + ' / ' + a.max; } },
@@ -239,7 +279,7 @@
     var q = E.norm(state.q);
     var list = articles().filter(function (a) {
       if (state.cat && a.categorie !== state.cat) return false;
-      if (state.site && (a.site || 'OWE') !== state.site) return false;
+      if (!sc() && state.site && siteOf(a) !== state.site) return false;
       if (state.artFilter === 'seuil' && a.qte > a.min) return false;
       if (state.artFilter === 'critique' && !a.critique) return false;
       if (q && E.norm(a.id + ' ' + a.designation + ' ' + a.emplacement + ' ' + a.categorie).indexOf(q) < 0) return false;
@@ -247,14 +287,14 @@
     });
     el.innerHTML =
       '<div class="ops-toolbar"><div class="chips" id="art-f"><button class="chip' + (!state.artFilter ? ' is-active' : '') + '" data-k="">Tous (' + articles().length + ')</button><button class="chip' + (state.artFilter === 'seuil' ? ' is-active' : '') + '" data-k="seuil">Sous seuil (' + sousSeuil().length + ')</button><button class="chip' + (state.artFilter === 'critique' ? ' is-active' : '') + '" data-k="critique">Critiques (' + articles().filter(function (a) { return a.critique; }).length + ')</button></div></div>' +
-      '<div class="ops-toolbar"><input class="input" id="art-q" type="search" placeholder="Rechercher un article, une référence…" value="' + esc(state.q) + '"><select class="select" id="art-cat"><option value="">Toutes les catégories</option>' + cats.map(function (c) { return '<option' + (state.cat === c ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select><select class="select" id="art-site"><option value="">Tous les magasins</option>' + Object.keys(MAGASINS).map(function (k) { return '<option value="' + k + '"' + (state.site === k ? ' selected' : '') + '>' + esc(MAGASINS[k]) + '</option>'; }).join('') + '</select><span class="spacer"></span>' +
+      '<div class="ops-toolbar"><input class="input" id="art-q" type="search" placeholder="Rechercher un article, une référence…" value="' + esc(state.q) + '"><select class="select" id="art-cat"><option value="">Toutes les catégories</option>' + cats.map(function (c) { return '<option' + (state.cat === c ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select>' + (sc() ? '' : '<select class="select" id="art-site"><option value="">Tous les magasins</option>' + Object.keys(MAGASINS).map(function (k) { return '<option value="' + k + '"' + (state.site === k ? ' selected' : '') + '>' + esc(MAGASINS[k]) + '</option>'; }).join('') + '</select>') + '<span class="spacer"></span>' +
       '<button class="btn" id="art-csv">' + E.icon('download') + 'CSV</button><button class="btn" id="art-new">' + E.icon('plus') + 'Nouvel article</button><button class="btn" id="art-in">' + E.icon('inbox') + 'Entrée / retour</button><button class="btn primary" id="art-out">' + E.icon('send') + 'Bon de sortie</button></div>' +
-      '<div class="card"><div class="card__h"><h3>Articles en stock</h3><span class="sub">' + list.length + ' référence(s) · valeur ' + F.money(sum(list, function (a) { return a.qte * a.pu; })) + '</span></div>' +
+      '<div class="card"><div class="card__h"><h3>Articles en stock' + (sc() ? ' — ' + esc(magName(sc())) : '') + '</h3><span class="sub">' + list.length + ' référence(s) · valeur ' + F.money(sum(list, function (a) { return a.qte * a.pu; })) + '</span></div>' +
       U.table(artCols(true), list, { onRow: function (a) { openArticle(a.id); }, empty: 'Aucun article ne correspond' }) + '</div>';
     el.querySelector('#art-f').addEventListener('click', function (e) { var b = e.target.closest('.chip'); if (b) { state.artFilter = b.dataset.k; vMagasin(el); } });
     var qi = el.querySelector('#art-q'); qi.oninput = function () { state.q = qi.value; clearTimeout(qi._t); qi._t = setTimeout(function () { vMagasin(el); var n = el.querySelector('#art-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 250); };
     el.querySelector('#art-cat').onchange = function () { state.cat = this.value; vMagasin(el); };
-    el.querySelector('#art-site').onchange = function () { state.site = this.value; vMagasin(el); };
+    var ss = el.querySelector('#art-site'); if (ss) ss.onchange = function () { state.site = this.value; vMagasin(el); };
     el.querySelector('#art-csv').onclick = function () { U.exportCSV('magasin-articles-' + E.today(), artCols(true), list); };
     el.querySelector('#art-new').onclick = function () { articleForm(); };
     el.querySelector('#art-in').onclick = function () { entreeForm(); };
@@ -273,7 +313,7 @@
         { key: 'type', label: 'Type', render: function (m) { return U.badge(m.type, TYPES_S[m.type].tone); } },
         { key: 'qte', label: 'Quantité', num: 1, render: function (m) { return msQteTxt(m); } },
         { key: 'ref', label: 'Pièce', render: function (m) { return '<span class="mono">' + esc(m.ref) + '</span>'; } },
-        { key: 'demandeur', label: 'Par', render: function (m) { return esc(E.empName(m.demandeur)); } }
+        { key: 'demandeur', label: 'Par', render: function (m) { return esc(empNom(m.demandeur)); } }
       ], mv, { empty: 'Aucun mouvement récent' });
     U.modal({ title: a.designation, sub: a.id + ' · ' + esc(a.categorie), size: 'lg', body: body, onClose: deep ? function () { clearDeep('magasin'); } : null,
       actions: [
@@ -284,45 +324,63 @@
       ] });
   }
   function artOpts(f) { return articles().filter(f || function () { return true; }).map(function (a) { return { v: a.id, l: a.id + ' · ' + a.designation + ' (' + F.num(a.qte) + ' ' + a.unite + ')' }; }); }
-  function otOpts() {
-    if (S.has('ordres') && S.all('ordres').length) return S.all('ordres').filter(function (o) { return !/clôtur|termin|annul/i.test(o.statut || ''); }).map(function (o) { return { v: o.id, l: o.id + ' · ' + (o.titre || o.objet || o.libelle || o.equipement || '') }; });
-    return null;
+  /* OT ouverts du site de l'article (vue globale) ou de l'espace actif ; toujours une imputation hors OT possible */
+  function otOpts(site) {
+    if (!S.has('ordres')) return null;
+    var l = S.raw('ordres').filter(function (o) { return !/clôtur|termin|annul/i.test(o.statut || '') && (!site || (o.site || 'OWE') === site); }).map(function (o) { return { v: o.id, l: o.id + ' · ' + (o.titre || o.objet || o.libelle || o.equipement || '') }; });
+    return l.concat([{ v: 'Dotation EPI', l: 'Hors OT — dotation EPI / consommables' }]);
   }
-  function addMvtS(o) { o.id = S.next('MS'); o.date = o.date || E.today(); S.all('mouvementsStock').unshift(o); S.save(); return o; }
+  function eqOpts(site) { return [{ v: '', l: 'Quais, parc, bâtiments ou dotation' }].concat(S.raw('flotte').filter(function (x) { return !site || (x.site || 'OWE') === site; }).map(function (x) { return { v: x.id, l: x.id + ' · ' + x.nom }; })); }
+  function optsHTML(list, val) { return list.map(function (o) { return '<option value="' + esc(o.v) + '"' + (String(o.v) === String(val) ? ' selected' : '') + '>' + esc(o.l) + '</option>'; }).join(''); }
+  /* mouvement rattaché au magasin (site) de l'article */
+  function addMvtS(o) { var a = S.get('articles', o.articleId); o.id = S.next('MS'); o.date = o.date || E.today(); o.site = o.site || siteOf(a); S.all('mouvementsStock').unshift(o); S.save(); return o; }
   function sortieForm(id) {
-    var ots = otOpts(), u = E.session.user();
+    var u = E.session.user(), a0 = id ? getArt(id) : null, site0 = sc() || (a0 ? siteOf(a0) : (articles().filter(function (x) { return x.qte > 0; })[0] ? siteOf(articles().filter(function (x) { return x.qte > 0; })[0]) : 'OWE'));
+    var ots = otOpts(site0);
     var m = U.formModal({ title: 'Bon de sortie magasin', sub: 'Sortie imputée à un ordre de travail — le stock est décrémenté', okLabel: 'Valider la sortie',
       intro: '<div class="ops-note" id="bs-info" style="margin-bottom:14px"></div>',
       fields: [
         { name: 'article', label: 'Article', type: 'select', options: artOpts(function (x) { return x.qte > 0; }), required: true, full: true },
         { name: 'qte', label: 'Quantité', type: 'number', required: true, min: 1, value: 1 },
         ots ? { name: 'ot', label: 'Ordre de travail imputé', type: 'select', options: ots, empty: '— Choisir un OT —', required: true } : { name: 'ot', label: 'Ordre de travail / imputation', type: 'text', required: true, placeholder: 'OT-' + E.TODAY.getFullYear() + '-0520 ou « Dotation EPI »' },
-        { name: 'demandeur', label: 'Demandeur', type: 'select', options: empOpts(), required: true, value: empIdByName('Boussougou') },
-        { name: 'equipement', label: 'Équipement / destination', type: 'select', options: [{ v: '', l: 'Quais, parc, bâtiments ou dotation' }].concat(E.options('flotte', function (x) { return x.id + ' · ' + x.nom; })) },
-        { name: 'commentaire', label: 'Motif / commentaire', type: 'textarea', placeholder: 'ex. Remplacement du câble de levage — grue n° 2' }
-      ], values: { article: id, equipement: id && S.get('articles', id) && (S.get('articles', id).equipements || [])[0] || '' },
+        { name: 'demandeur', label: 'Demandeur', type: 'select', options: empOpts(site0), required: true, value: defEmp(site0, 'tech') },
+        { name: 'equipement', label: 'Équipement / destination', type: 'select', options: eqOpts(site0) },
+        { name: 'commentaire', label: 'Motif / commentaire', type: 'textarea', placeholder: site0 === 'POG' ? 'ex. Remplacement des joints de raccord — barge Mandji' : 'ex. Remplacement du câble de levage — grue n° 2' }
+      ], values: { article: id, equipement: a0 && (a0.equipements || [])[0] || '' },
       onSubmit: function (v) {
         var a = S.get('articles', v.article), q = +v.qte;
+        if (!a) { U.toast('Article introuvable.', 'err'); return false; }
         if (!(q > 0)) { U.toast('Quantité invalide.', 'err'); return false; }
         if (q > a.qte) { U.toast('Stock insuffisant : ' + F.num(a.qte) + ' ' + a.unite + ' disponible(s).', 'err'); return false; }
         var wasOk = a.qte > a.min;
         S.update('articles', a.id, { qte: a.qte - q });
         var bs = S.next('BS');
-        var mv = addMvtS({ type: 'Sortie', articleId: a.id, qte: q, pu: a.pu, ref: v.ot, bs: bs, demandeur: v.demandeur, equipement: v.equipement, commentaire: v.commentaire || '', saisiPar: u ? u.name : '' });
+        var mv = addMvtS({ type: 'Sortie', articleId: a.id, qte: q, pu: a.pu, ref: v.ot, bs: bs, demandeur: v.demandeur, equipement: v.equipement, commentaire: v.commentaire || '', saisiPar: u ? u.name : '', site: siteOf(a) });
         E.log('Bon de sortie ' + bs, F.num(q) + ' ' + a.unite + ' · ' + a.designation + ' → ' + v.ot, 'stocks');
         if (wasOk && a.qte <= a.min) E.notify('Article sous le seuil mini', a.designation + ' (' + F.num(a.qte) + ' ' + a.unite + ')', '#/stocks/reappro', a.critique ? 'red' : 'orange');
         U.toast('Sortie validée — ' + bs);
         E.rerender();
         setTimeout(function () { printBS(mv); }, 60);
       } });
-    var sel = m.el.querySelector('#f_article');
-    function info() { var a = S.get('articles', sel.value); if (!a) return; m.el.querySelector('#bs-info').innerHTML = '<b>' + esc(a.designation) + '</b><br>Stock : <b>' + F.num(a.qte) + ' ' + esc(a.unite) + '</b> · emplacement <span class="mono">' + esc(a.emplacement) + '</span> · seuil mini ' + a.min + (a.critique ? ' · ' + U.badge('Critique', 'red') : ''); }
+    var sel = m.el.querySelector('#f_article'), cur = site0;
+    function info() {
+      var a = S.get('articles', sel.value); if (!a) return;
+      m.el.querySelector('#bs-info').innerHTML = '<b>' + esc(a.designation) + '</b><br>Stock : <b>' + F.num(a.qte) + ' ' + esc(a.unite) + '</b> · emplacement <span class="mono">' + esc(a.emplacement) + '</span>' + (sc() ? '' : ' · ' + esc(magName(siteOf(a)))) + ' · seuil mini ' + a.min + (a.critique ? ' · ' + U.badge('Critique', 'red') : '');
+      /* vue globale : listes (OT, demandeur, équipement) limitées au site de l'article */
+      var s = siteOf(a);
+      if (s !== cur) {
+        cur = s;
+        var ot = m.el.querySelector('select#f_ot'); if (ot) ot.innerHTML = '<option value="">— Choisir un OT —</option>' + optsHTML(otOpts(s), '');
+        m.el.querySelector('#f_demandeur').innerHTML = optsHTML(empOpts(s), defEmp(s, 'tech'));
+      }
+      var eq = m.el.querySelector('#f_equipement'); eq.innerHTML = optsHTML(eqOpts(s), (a.equipements || [])[0] || '');
+    }
     sel.onchange = info; info();
   }
   function printBS(m) {
-    var a = S.get('articles', m.articleId) || {}, un = m.equipement ? S.get('flotte', m.equipement) : null;
-    printModal('Bon de sortie ' + (m.bs || m.id), docHead('BON DE SORTIE MAGASIN', m.bs || m.id, (a.site === 'POG' ? 'Port-Gentil' : 'Owendo') + ', le ' + F.date(m.date)) +
-      '<div class="ops-doc-meta"><div><span>Ordre de travail : </span><b>' + esc(m.ref) + '</b></div><div><span>Demandeur : </span><b>' + esc(E.empName(m.demandeur)) + '</b></div><div><span>Équipement / destination : </span><b>' + esc(un ? un.id + ' · ' + un.nom : 'Quais, parc ou dotation') + '</b></div><div><span>Magasin : </span><b>' + esc(MAGASINS[a.site || 'OWE']) + '</b></div></div>' +
+    var a = S.get('articles', m.articleId) || {}, un = m.equipement ? S.raw('flotte').find(function (x) { return x.id === m.equipement; }) : null, site = m.site || siteOf(a);
+    printModal('Bon de sortie ' + (m.bs || m.id), docHead('BON DE SORTIE MAGASIN', m.bs || m.id, (site === 'POG' ? 'Port-Gentil' : 'Owendo') + ', le ' + F.date(m.date), site) +
+      '<div class="ops-doc-meta"><div><span>Ordre de travail : </span><b>' + esc(m.ref) + '</b></div><div><span>Demandeur : </span><b>' + esc(empNom(m.demandeur)) + '</b></div><div><span>Équipement / destination : </span><b>' + esc(un ? un.id + ' · ' + un.nom : 'Quais, parc ou dotation') + '</b></div><div><span>Magasin : </span><b>' + esc(magName(site)) + '</b></div></div>' +
       '<table class="ops-doc-tbl"><thead><tr><th>Référence</th><th>Désignation</th><th>Empl.</th><th class="num">Qté</th><th class="num">PU</th><th class="num">Montant</th></tr></thead><tbody><tr><td class="mono">' + esc(a.id) + '</td><td>' + esc(a.designation) + '</td><td class="mono">' + esc(a.emplacement) + '</td><td class="num">' + F.num(m.qte) + ' ' + esc(a.unite) + '</td><td class="num">' + F.money(m.pu) + '</td><td class="num"><b>' + F.money(m.qte * m.pu) + '</b></td></tr></tbody></table>' +
       (m.commentaire ? '<p><span class="muted">Motif : </span>' + esc(m.commentaire) + '</p>' : '') +
       '<p class="small muted">Imputation analytique : coût porté sur l\'ordre de travail ' + esc(m.ref) + '. Le matériel non utilisé doit être retourné au magasin sous 72 h avec ce bon.</p>' +
@@ -342,15 +400,18 @@
         if (!(q > 0)) { U.toast('Quantité invalide.', 'err'); return false; }
         var patch = { qte: a.qte + q }; if (v.type === 'Entrée' && a.daEnCours) patch.daEnCours = '';
         S.update('articles', a.id, patch);
-        addMvtS({ type: v.type, articleId: a.id, qte: q, pu: a.pu, ref: v.ref, demandeur: empIdByName('Mengue'), commentaire: v.commentaire || (v.type === 'Entrée' ? 'Réception' : 'Retour magasin') });
+        addMvtS({ type: v.type, articleId: a.id, qte: q, pu: a.pu, ref: v.ref, demandeur: defEmp(siteOf(a), 'mag'), commentaire: v.commentaire || (v.type === 'Entrée' ? 'Réception' : 'Retour magasin') });
         E.log((v.type === 'Entrée' ? 'Réception ' : 'Retour ') + v.ref, F.num(q) + ' ' + a.unite + ' · ' + a.designation, 'stocks');
         U.toast('Stock mis à jour : ' + a.designation + ' → ' + F.num(a.qte) + ' ' + a.unite); E.rerender();
       } });
   }
   function articleForm(id) {
     var a = id ? S.get('articles', id) : null;
-    var cats = Object.keys(E.groupBy(articles(), 'categorie')).sort();
-    U.formModal({ title: a ? 'Modifier l\'article ' + a.id : 'Nouvel article', okLabel: a ? 'Enregistrer' : 'Créer l\'article',
+    var cats = Object.keys(E.groupBy(S.raw('articles'), 'categorie')).concat(Object.keys(CAT_ICON)).filter(function (c, i, l) { return l.indexOf(c) === i; }).sort();
+    /* magasin imposé : site de l'article (modification) ou espace actif ; choix libre seulement en vue globale */
+    var fixed = a ? siteOf(a) : sc();
+    var magOpts = (fixed ? [fixed] : Object.keys(MAGASINS)).map(function (k) { return { v: k, l: MAGASINS[k] }; });
+    U.formModal({ title: a ? 'Modifier l\'article ' + a.id : 'Nouvel article', sub: fixed ? magName(fixed) : 'Choisissez le magasin de rattachement', okLabel: a ? 'Enregistrer' : 'Créer l\'article',
       fields: [
         { name: 'designation', label: 'Désignation', required: true, full: true },
         { name: 'categorie', label: 'Catégorie', type: 'select', options: cats, required: true },
@@ -359,21 +420,22 @@
         { name: 'pu', label: 'Prix unitaire (FCFA)', type: 'money', required: true, min: 0 },
         { name: 'min', label: 'Seuil mini', type: 'number', required: true, min: 0 },
         { name: 'max', label: 'Stock maxi', type: 'number', required: true, min: 0 },
-        { name: 'emplacement', label: 'Emplacement', placeholder: 'A-01-1' },
-        { name: 'site', label: 'Magasin', type: 'select', options: Object.keys(MAGASINS).map(function (k) { return { v: k, l: MAGASINS[k] }; }) },
+        { name: 'emplacement', label: 'Emplacement', placeholder: (fixed === 'POG' ? 'PG-A-01' : 'A-01-1') },
+        { name: 'site', label: 'Magasin', type: 'select', options: magOpts },
         { name: 'fournisseurId', label: 'Fournisseur habituel', type: 'select', options: E.options('fournisseurs') },
         { name: 'consoAn', label: 'Consommation annuelle', type: 'number', min: 0 },
         { name: 'critique', label: 'Article critique', type: 'select', options: [{ v: '0', l: 'Non' }, { v: '1', l: 'Oui — sécurité / disponibilité de la flotte' }] }
       ],
-      values: a ? Object.assign({}, a, { critique: a.critique ? '1' : '0' }) : { unite: 'u', qte: 0, min: 1, max: 5, critique: '0', fournisseurId: 'F-002', site: 'OWE' },
+      values: a ? Object.assign({}, a, { critique: a.critique ? '1' : '0' }) : { unite: 'u', qte: 0, min: 1, max: 5, critique: '0', fournisseurId: 'F-002', site: E.scope() || 'OWE' },
       onSubmit: function (v) {
         if (+v.max < +v.min) { U.toast('Le stock maxi doit être supérieur au seuil mini.', 'err'); return false; }
-        var o = { designation: v.designation, categorie: v.categorie, unite: v.unite, qte: +v.qte, pu: +v.pu, min: +v.min, max: +v.max, emplacement: v.emplacement, site: v.site || 'OWE', fournisseurId: v.fournisseurId, consoAn: +v.consoAn || 0, critique: v.critique === '1' };
+        var o = { designation: v.designation, categorie: v.categorie, unite: v.unite, qte: +v.qte, pu: +v.pu, min: +v.min, max: +v.max, emplacement: v.emplacement, site: fixed || v.site || E.scope() || 'OWE', fournisseurId: v.fournisseurId, consoAn: +v.consoAn || 0, critique: v.critique === '1' };
         if (a) { S.update('articles', a.id, o); E.log('Article modifié ' + a.id, o.designation, 'stocks'); U.toast('Article ' + a.id + ' mis à jour'); }
         else {
-          var n = Math.max.apply(null, articles().map(function (x) { return +String(x.id).replace(/\D/g, '') || 0; }).concat([1000])) + 1;
-          o.id = 'ART-' + n; o.equipements = []; o.dernierInventaire = E.today(); articles().push(o); S.save();
-          E.log('Article créé ' + o.id, o.designation, 'stocks'); U.toast('Article ' + o.id + ' créé');
+          /* numéro calculé sur tous les magasins (pas de doublon entre Owendo et Port-Gentil) */
+          var n = Math.max.apply(null, S.raw('articles').map(function (x) { return +String(x.id).replace(/\D/g, '') || 0; }).concat([1000])) + 1;
+          o.id = 'ART-' + n; o.equipements = []; o.dernierInventaire = E.today(); S.add('articles', o);
+          E.log('Article créé ' + o.id, o.designation + ' · ' + magName(o.site), 'stocks'); U.toast('Article ' + o.id + ' créé — ' + magName(o.site));
         }
         E.rerender();
       } });
@@ -393,11 +455,11 @@
     var cols = [
       { key: 'date', label: 'Date', render: function (m) { return F.dateShort(m.date); } },
       { key: 'type', label: 'Type', render: function (m) { return U.badge(m.type, TYPES_S[m.type].tone); } },
-      { key: 'article', label: 'Article', render: function (m) { var a = S.get('articles', m.articleId) || {}; return '<b>' + esc(a.designation || m.articleId) + '</b><div class="small muted mono">' + esc(m.articleId) + '</div>'; }, csv: function (m) { return (S.get('articles', m.articleId) || {}).designation; } },
+      { key: 'article', label: 'Article', render: function (m) { var a = S.get('articles', m.articleId) || {}; return '<b>' + esc(a.designation || m.articleId) + '</b><div class="small muted mono">' + esc(m.articleId) + (sc() ? '' : ' · ' + ((m.site || siteOf(a)) === 'POG' ? 'Port-Gentil' : 'Owendo')) + '</div>'; }, csv: function (m) { return (S.get('articles', m.articleId) || {}).designation; } },
       { key: 'qte', label: 'Quantité', num: 1, render: msQteTxt, csv: function (m) { return msSign(m) * m.qte; } },
       { key: 'valeur', label: 'Valeur', num: 1, render: function (m) { return F.short(m.qte * m.pu); }, csv: function (m) { return m.qte * m.pu; } },
       { key: 'ref', label: 'Pièce', render: function (m) { return '<span class="mono">' + esc(m.bs ? m.bs + ' · ' : '') + esc(m.ref) + '</span>'; } },
-      { key: 'demandeur', label: 'Demandeur', render: function (m) { return esc(E.empName(m.demandeur)); }, csv: function (m) { return E.empName(m.demandeur); } },
+      { key: 'demandeur', label: 'Demandeur', render: function (m) { return esc(empNom(m.demandeur)); }, csv: function (m) { return empNom(m.demandeur); } },
       { key: 'commentaire', label: 'Commentaire', render: function (m) { return '<span class="small">' + esc(m.commentaire) + '</span>'; } }
     ];
     el.innerHTML =
@@ -426,7 +488,7 @@
       '<div class="card"><div class="card__h"><h3>Proposition de réapprovisionnement</h3><span class="sub">' + list.length + ' article(s)</span><span class="spacer"></span><b id="ra-total" class="ops-num"></b><button class="btn primary" id="ra-go">' + E.icon('cart') + 'Créer une demande d\'achat</button></div>' +
       U.table([
         { key: 'sel', label: 'Choix', render: function (a) { return '<input type="checkbox" data-sel="' + a.id + '"' + (sel[a.id] ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:var(--navy)">'; } },
-        { key: 'designation', label: 'Article', render: function (a) { return '<b>' + esc(a.designation) + '</b>' + (a.critique ? ' <span class="badge tone-red plain">Critique</span>' : '') + '<div class="small muted mono">' + esc(a.id) + ' · ' + esc(a.emplacement) + '</div>'; } },
+        { key: 'designation', label: 'Article', render: function (a) { return '<b>' + esc(a.designation) + '</b>' + (a.critique ? ' <span class="badge tone-red plain">Critique</span>' : '') + '<div class="small muted mono">' + esc(a.id) + ' · ' + esc(a.emplacement) + (sc() ? '' : ' · ' + (siteOf(a) === 'POG' ? 'Port-Gentil' : 'Owendo')) + '</div>'; } },
         { key: 'qte', label: 'Stock / mini', num: 1, render: function (a) { return '<b class="' + (a.qte <= a.min ? 'ops-neg' : '') + '">' + F.num(a.qte) + '</b> / ' + F.num(a.min) + ' <span class="small muted">' + esc(a.unite) + '</span>'; } },
         { key: 'etat', label: 'État', render: function (a) { return a.daEnCours ? U.badge(a.daEnCours + ' en cours', 'blue') : a.qte <= a.min ? U.badge(artStatut(a), ART_TONE[artStatut(a)]) : U.badge('À surveiller', 'yellow'); } },
         { key: 'prop', label: 'Qté à commander', num: 1, render: function (a) { return '<input class="input" type="number" min="1" data-q="' + a.id + '" value="' + qty[a.id] + '" style="width:92px;text-align:right;padding:6px 8px">'; } },
@@ -445,7 +507,7 @@
     total();
     var das = S.has('da') ? S.all('da').filter(function (d) { return d.origine === 'Magasin' || /réapprovisionnement magasin/i.test(d.objet || ''); }) : [];
     el.querySelector('#ra-da').innerHTML = !S.has('da') ? '<div class="ops-note">Le module <b>Achats</b> n\'est pas activé sur cette démonstration : la proposition sera exportée en CSV.</div>' :
-      das.length ? '<div class="list">' + das.map(function (d) { return '<a class="list__item" href="#/achats/da/' + esc(d.id) + '" style="color:inherit"><div class="list__icon tone-orange">' + E.icon('cart') + '</div><div class="list__body"><b>' + esc(d.id) + ' · ' + esc(d.objet) + '</b><div class="small muted">' + F.date(d.date) + ' · ' + (d.lignes || []).length + ' ligne(s) · ' + F.money(d.montant) + '</div></div>' + U.badge(d.statut) + '</a>'; }).join('') + '</div>' : '<div class="small muted">Aucune demande d\'achat générée depuis le magasin pour l\'instant.</div>';
+      das.length ? '<div class="list">' + das.map(function (d) { return '<a class="list__item" href="#/achats/da/' + esc(d.id) + '" style="color:inherit"><div class="list__icon tone-orange">' + E.icon('cart') + '</div><div class="list__body"><b>' + esc(d.id) + ' · ' + esc(d.objet) + '</b><div class="small muted">' + (sc() ? '' : esc(magName(d.site)) + ' · ') + F.date(d.date) + ' · ' + (d.lignes || []).length + ' ligne(s) · ' + F.money(d.montant) + '</div></div>' + U.badge(d.statut) + '</a>'; }).join('') + '</div>' : '<div class="small muted">Aucune demande d\'achat générée depuis le magasin pour l\'instant.</div>';
     el.querySelector('#ra-go').onclick = function () {
       var lines = list.filter(function (a) { return sel[a.id]; }); if (!lines.length) { U.toast('Sélectionnez au moins un article.', 'err'); return; }
       var lignes = lines.map(function (a) { return { articleId: a.id, designation: a.designation, qte: qty[a.id], unite: a.unite, pu: a.pu, montant: qty[a.id] * a.pu, fournisseurId: a.fournisseurId }; });
@@ -454,14 +516,23 @@
         U.exportCSV('proposition-reappro-' + E.today(), [{ key: 'articleId', label: 'Référence' }, { key: 'designation', label: 'Désignation' }, { key: 'qte', label: 'Quantité' }, { key: 'unite', label: 'Unité' }, { key: 'pu', label: 'PU' }, { key: 'montant', label: 'Montant' }, { key: 'fournisseurId', label: 'Fournisseur' }], lignes);
         return;
       }
-      U.confirm('Créer une demande d\'achat', 'Générer une demande d\'achat brouillon de <b>' + lignes.length + ' ligne(s)</b> pour <b>' + F.money(montant) + '</b> ?', 'Créer la DA', function () {
-        var u = E.session.user(), crit = lines.some(function (a) { return a.critique; });
-        var da = { id: (function () { var y = E.TODAY.getFullYear(), mx = 100; S.all('da').forEach(function (x) { var m = /-(\d{4})$/.exec(x.id || ''); if (m) mx = Math.max(mx, +m[1]); }); return 'DA-' + y + '-' + String(mx + 1).padStart(4, '0'); })(), objet: 'Réapprovisionnement magasin — ' + lignes.length + ' article(s) sous seuil', lignes: lignes, montant: montant, statut: 'Brouillon', date: E.today(), demandeur: empIdByName('Mengue') || (u ? u.name : ''), direction: 'ACH', origine: 'Magasin', urgence: crit ? 'Urgente' : 'Normale', categorie: 'Pièces de rechange portuaires', imputation: 'Budget maintenance courante', justification: 'Réapprovisionnement automatique des articles sous le seuil mini du magasin.', visas: [], fournisseurId: lignes[0].fournisseurId };
-        S.all('da').unshift(da); S.save();
-        lines.forEach(function (a) { S.update('articles', a.id, { daEnCours: da.id }); });
-        E.log('Demande d\'achat ' + da.id + ' créée depuis le magasin', lignes.length + ' ligne(s) · ' + F.money(montant), 'stocks');
-        E.notify('Nouvelle demande d\'achat ' + da.id, 'Réapprovisionnement magasin · ' + F.short(montant) + ' FCFA', '#/achats/da/' + da.id, 'orange');
-        U.toast('Demande d\'achat ' + da.id + ' créée (brouillon)');
+      /* une demande d'achat par magasin : chaque DA est rattachée au site de ses articles */
+      var bySite = {}; lines.forEach(function (a) { (bySite[siteOf(a)] = bySite[siteOf(a)] || []).push(a); });
+      var sites = Object.keys(bySite);
+      U.confirm('Créer une demande d\'achat', 'Générer ' + (sites.length > 1 ? sites.length + ' demandes d\'achat brouillon (une par magasin : ' + sites.map(magName).join(', ') + ')' : 'une demande d\'achat brouillon') + ' de <b>' + lignes.length + ' ligne(s)</b> pour <b>' + F.money(montant) + '</b> ?', sites.length > 1 ? 'Créer les DA' : 'Créer la DA', function () {
+        var u = E.session.user(), ids = [];
+        sites.forEach(function (site) {
+          var arts = bySite[site], crit = arts.some(function (a) { return a.critique; });
+          var lg = lignes.filter(function (l) { return arts.some(function (a) { return a.id === l.articleId; }); }), mt = sum(lg, 'montant');
+          var y = E.TODAY.getFullYear(), mx = 100; S.raw('da').forEach(function (x) { var m = /-(\d{4})$/.exec(x.id || ''); if (m) mx = Math.max(mx, +m[1]); });
+          var da = { id: 'DA-' + y + '-' + String(mx + 1).padStart(4, '0'), site: site, objet: 'Réapprovisionnement magasin — ' + lg.length + ' article(s) sous seuil' + (sc() ? '' : ' (' + (site === 'POG' ? 'Port-Gentil' : 'Owendo') + ')'), lignes: lg, montant: mt, statut: 'Brouillon', date: E.today(), demandeur: defEmp(site, 'mag') || (u ? u.name : ''), direction: 'ACH', origine: 'Magasin', urgence: crit ? 'Urgente' : 'Normale', categorie: 'Pièces de grues & engins', imputation: 'Budget maintenance courante', justification: 'Réapprovisionnement automatique des articles sous le seuil mini du ' + magName(site) + '.', visas: [], fournisseurId: lg[0].fournisseurId };
+          S.add('da', da);
+          arts.forEach(function (a) { S.update('articles', a.id, { daEnCours: da.id }); });
+          E.log('Demande d\'achat ' + da.id + ' créée depuis le magasin', magName(site) + ' · ' + lg.length + ' ligne(s) · ' + F.money(mt), 'stocks');
+          E.notify('Nouvelle demande d\'achat ' + da.id, 'Réapprovisionnement ' + magName(site) + ' · ' + F.short(mt) + ' FCFA', '#/achats/da/' + da.id, 'orange');
+          ids.push(da.id);
+        });
+        U.toast('Demande(s) d\'achat ' + ids.join(', ') + ' créée(s) (brouillon)');
         E.rerender();
       });
     };
@@ -487,11 +558,11 @@
       '</div>' +
       '<div class="grid g-1-2">' +
         '<div class="card"><div class="card__h"><h3>Campagne — semaine ' + wk + '</h3><span class="sub">références jamais ou anciennement comptées</span></div><div class="list">' +
-          todo.map(function (a) { return '<div class="list__item"><div class="list__icon ' + (a.critique ? 'tone-red' : 'tone-blue') + '">' + E.icon('box') + '</div><div class="list__body"><b>' + esc(a.designation) + '</b><div class="small muted"><span class="mono">' + esc(a.emplacement) + '</span> · dernier comptage ' + F.date(a.dernierInventaire) + '</div></div><button class="btn sm" data-count="' + a.id + '">Compter</button></div>'; }).join('') + '</div></div>' +
+          todo.map(function (a) { return '<div class="list__item"><div class="list__icon ' + (a.critique ? 'tone-red' : 'tone-blue') + '">' + E.icon('box') + '</div><div class="list__body"><b>' + esc(a.designation) + '</b><div class="small muted"><span class="mono">' + esc(a.emplacement) + '</span>' + (sc() ? '' : ' · ' + (siteOf(a) === 'POG' ? 'Port-Gentil' : 'Owendo')) + ' · dernier comptage ' + F.date(a.dernierInventaire) + '</div></div><button class="btn sm" data-count="' + a.id + '">Compter</button></div>'; }).join('') + '</div></div>' +
         '<div class="card"><div class="card__h"><h3>Comptages & écarts</h3><span class="spacer"></span><button class="btn sm" id="inv-new">' + E.icon('plus') + 'Autre article</button></div>' +
         U.table([
           { key: 'date', label: 'Date', render: function (i) { return F.dateShort(i.date); } },
-          { key: 'article', label: 'Article', render: function (i) { var a = S.get('articles', i.articleId) || {}; return '<b>' + esc(a.designation || i.articleId) + '</b><div class="small muted mono">' + esc(i.id) + ' · ' + esc(i.articleId) + '</div>'; } },
+          { key: 'article', label: 'Article', render: function (i) { var a = S.get('articles', i.articleId) || {}; return '<b>' + esc(a.designation || i.articleId) + '</b><div class="small muted mono">' + esc(i.id) + ' · ' + esc(i.articleId) + (sc() ? '' : ' · ' + (siteOf(i) === 'POG' ? 'Port-Gentil' : 'Owendo')) + '</div>'; } },
           { key: 'theorique', label: 'Théorique', num: 1 },
           { key: 'reel', label: 'Compté', num: 1 },
           { key: 'ecart', label: 'Écart', num: 1, render: function (i) { return '<b class="' + (i.ecart < 0 ? 'ops-neg' : i.ecart > 0 ? 'ops-pos' : '') + '">' + signed(i.ecart) + '</b><div class="small muted">' + (i.valeurEcart ? F.short(i.valeurEcart) + ' FCFA' : '') + '</div>'; } },
@@ -504,16 +575,17 @@
     E.$$('[data-rec]', el).forEach(function (b) { b.onclick = function () { var i = S.get('inventaires', b.dataset.rec); S.remove('inventaires', i.id); E.log('Recomptage demandé', i.articleId, 'stocks'); U.toast('Comptage annulé — article remis dans la campagne'); countForm(i.articleId); }; });
   }
   function countForm(id) {
+    var a0 = id ? getArt(id) : articles()[0], site0 = sc() || siteOf(a0);
     var m = U.formModal({ title: 'Comptage d\'inventaire', sub: 'Comptage physique en magasin — l\'écart est soumis à validation', okLabel: 'Enregistrer le comptage',
       intro: '<div class="ops-note" id="ct-info" style="margin-bottom:14px"></div>',
       fields: [
         { name: 'article', label: 'Article', type: 'select', options: artOpts(), required: true, full: true },
         { name: 'reel', label: 'Quantité comptée', type: 'number', required: true, min: 0 },
-        { name: 'compteur', label: 'Compteur', type: 'select', options: empOpts(), required: true, value: empIdByName('Mengue') }
+        { name: 'compteur', label: 'Compteur', type: 'select', options: empOpts(site0), required: true, value: defEmp(site0, 'mag') }
       ], values: { article: id },
       onSubmit: function (v) {
         var a = S.get('articles', v.article), reel = +v.reel, ec = reel - a.qte;
-        var o = { id: 'INV-' + String(Math.max.apply(null, S.all('inventaires').map(function (x) { return +String(x.id).replace(/\D/g, '') || 0; }).concat([0])) + 1).padStart(4, '0'), date: E.today(), articleId: a.id, theorique: a.qte, reel: reel, ecart: ec, valeurEcart: ec * a.pu, compteur: v.compteur, statut: ec === 0 ? 'Validé' : 'À valider' };
+        var o = { site: siteOf(a), id: 'INV-' + String(Math.max.apply(null, S.raw('inventaires').map(function (x) { return +String(x.id).replace(/\D/g, '') || 0; }).concat([0])) + 1).padStart(4, '0'), date: E.today(), articleId: a.id, theorique: a.qte, reel: reel, ecart: ec, valeurEcart: ec * a.pu, compteur: v.compteur, statut: ec === 0 ? 'Validé' : 'À valider' };
         S.all('inventaires').unshift(o); S.update('articles', a.id, { dernierInventaire: E.today() });
         E.log('Comptage ' + o.id, a.designation + ' : ' + reel + ' (écart ' + signed(ec) + ')', 'stocks');
         if (ec !== 0) E.notify('Écart d\'inventaire à valider', a.designation + ' : ' + signed(ec) + ' ' + a.unite + ' (' + F.short(ec * a.pu) + ' FCFA)', '#/stocks/inventaire', 'violet');
@@ -521,7 +593,12 @@
         E.rerender();
       } });
     var sel = m.el.querySelector('#f_article');
-    function info() { var a = S.get('articles', sel.value); m.el.querySelector('#ct-info').innerHTML = '<b>' + esc(a.designation) + '</b><br>Emplacement <span class="mono">' + esc(a.emplacement) + '</span> · unité : ' + esc(a.unite) + ' · <span class="muted">stock théorique masqué pendant le comptage (comptage « à l\'aveugle »)</span>'; }
+    var cur = site0;
+    function info() {
+      var a = S.get('articles', sel.value); if (!a) return;
+      if (siteOf(a) !== cur) { cur = siteOf(a); m.el.querySelector('#f_compteur').innerHTML = optsHTML(empOpts(cur), defEmp(cur, 'mag')); }
+      m.el.querySelector('#ct-info').innerHTML = '<b>' + esc(a.designation) + '</b><br>' + (sc() ? '' : esc(magName(siteOf(a))) + ' · ') + 'Emplacement <span class="mono">' + esc(a.emplacement) + '</span> · unité : ' + esc(a.unite) + ' · <span class="muted">stock théorique masqué pendant le comptage (comptage « à l\'aveugle »)</span>';
+    }
     sel.onchange = info; info();
   }
   function validateInv(id) {
@@ -543,8 +620,8 @@
     summary: function () {
       var ss = sousSeuil(), crit = ss.filter(function (a) { return a.critique; });
       return [
-        { label: 'Valeur du magasin', value: F.short(valeurStock()), unit: 'FCFA', icon: 'box', tone: 'blue', foot: articles().length + ' références (Owendo et Port-Gentil)', href: '#/stocks' },
-        { label: 'Articles sous seuil mini', value: String(ss.length), icon: 'alert', tone: crit.length ? 'red' : ss.length ? 'orange' : 'green', foot: crit.length + ' pièce(s) critique(s) pour la flotte et les grues', href: '#/stocks/reappro' }
+        { label: 'Valeur du magasin', value: F.short(valeurStock()), unit: 'FCFA', icon: 'box', tone: 'blue', foot: articles().length + ' références · ' + (sc() ? magName(sc()) : 'Owendo et Port-Gentil'), href: '#/stocks' },
+        { label: 'Articles sous seuil mini', value: String(ss.length), icon: 'alert', tone: crit.length ? 'red' : ss.length ? 'orange' : 'green', foot: crit.length + ' pièce(s) critique(s) ' + (sc() === 'POG' ? 'pour la flotte et le soutage' : sc() === 'OWE' ? 'pour la flotte et les grues' : 'pour la flotte, les grues et le soutage'), href: '#/stocks/reappro' }
       ];
     },
     pending: function () {

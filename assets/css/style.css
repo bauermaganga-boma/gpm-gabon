@@ -893,3 +893,5 @@ body.nav-open .burger span:nth-child(3) { top: 22px; transform: rotate(-45deg); 
 
 /* ---------- Impression ---------- */
 @media print { .header, .fab, .waves, .hero__live, .lightbox, .modal { display: none !important; } .hero, .page-hero { min-height: 0; padding: 30px 0; } }
+/* Photo du Directeur général (s'affiche dès que assets/img/dg-nassib-barchiche.jpg est présent) */
+.dg__avatar img { position: absolute; inset: 5px; width: calc(100% - 10px); height: calc(100% - 10px); border-radius: 50%; object-fit: cover; object-position: center 25%; background: #fff; }

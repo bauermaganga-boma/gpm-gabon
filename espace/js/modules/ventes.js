@@ -36,6 +36,17 @@
   function escalesAll() { if (S.has('escales') && S.all('escales').length) return S.all('escales'); return (window.GPM_DATA && window.GPM_DATA.escalesDefaut) || []; }
   function escale(id) { return id ? escalesAll().find(function (x) { return x.id === id; }) : null; }
   function siteNom(id) { return id === 'POG' ? 'Port-Gentil' : id === 'OWE' ? 'Owendo' : (id || '—'); }
+  /* Numérotation des factures par port : FAC-OWE-2026-0101, FAC-POG-2026-0101 (les anciennes FAC-2026-xxxx restent valables). */
+  function facNum(site) { return S.next('FAC-' + (site === 'POG' ? 'POG' : 'OWE')); }
+  function siteDe(clientId) { var c = S.get('clients', clientId); return c && c.ville === 'Port-Gentil' ? 'POG' : 'OWE'; }
+  /* Signataire et lieu des documents selon le port */
+  function signataire(site) { return site === 'POG' ? { t: 'La Responsable administrative et financière — Port-Gentil', n: 'Gisèle Boukandou', lieu: 'Port-Gentil' } : { t: 'La Directrice administrative et financière', n: 'Christelle Moussounda', lieu: 'Owendo' }; }
+  /* Clients utiles dans l'espace actif (référentiel commun) : ceux qui ont une activité sur le site, ou basés dans sa ville */
+  function siteClients() {
+    var sc = E.scope(), all = S.all('clients'); if (!sc) return all;
+    var act = {}; facts().forEach(function (f) { act[f.client] = 1; }); prs().forEach(function (p) { act[p.client] = 1; }); S.all('devisClients').forEach(function (o) { act[o.client] = 1; });
+    return all.filter(function (c) { return act[c.id] || (sc === 'POG' ? c.ville === 'Port-Gentil' : c.ville !== 'Port-Gentil'); });
+  }
 
   /* Montant en toutes lettres */
   var UN = ['zéro', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix', 'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize', 'dix-sept', 'dix-huit', 'dix-neuf'];
@@ -104,12 +115,12 @@
     offs.forEach(function (o, i) {
       var c = ORDER[i % ORDER.length], navs = NAVIRES[c]; ki[c] = (ki[c] || 0) + 1;
       var navire = navs[ki[c] % navs.length], t = lignesTypes(c, rnd, navire), date = d(Math.min(0, o));
-      var f = { id: S.next('FAC'), type: 'Facture', client: c, escale: 'ESC-2026-0' + (escN + i * 2), navire: navire, site: t.site, date: date, echeance: E.addDays(date, (C[c] || {}).delai || 30), tva: tva, lignes: t.lignes, statut: i >= 29 ? 'Brouillon' : 'Émise', relances: [], historique: [{ at: date, user: 'Christelle Moussounda', action: 'Facture créée' }] };
+      var f = { id: S.next('FAC-' + t.site), type: 'Facture', client: c, escale: 'ESC-2026-0' + (escN + i * 2), navire: navire, site: t.site, date: date, echeance: E.addDays(date, (C[c] || {}).delai || 30), tva: tva, lignes: t.lignes, statut: i >= 29 ? 'Brouillon' : 'Émise', relances: [], historique: [{ at: date, user: 'Christelle Moussounda', action: 'Facture créée' }] };
       if (f.statut === 'Émise') f.historique.push({ at: date, user: 'Christelle Moussounda', action: 'Facture validée et émise' });
       factures.push(f);
     });
     function ttc(f) { var ht = E.sum(f.lignes, function (l) { return l.qte * l.pu; }); return Math.round(ht) + Math.round(ht * f.tva / 100); }
-    function pay(f, date, mt, mode) { if (date > today()) return; if (date < f.date) date = f.date; var m = mode || (mt < 3e6 ? 'Chèque' : 'Virement'); enc.push({ id: '', facture: f.id, client: f.client, date: date, montant: Math.round(mt), mode: m, banque: BANQUES[enc.length % BANQUES.length], reference: '' }); }
+    function pay(f, date, mt, mode) { if (date > today()) return; if (date < f.date) date = f.date; var m = mode || (mt < 3e6 ? 'Chèque' : 'Virement'); enc.push({ id: '', site: f.site, facture: f.id, client: f.client, date: date, montant: Math.round(mt), mode: m, banque: BANQUES[enc.length % BANQUES.length], reference: '' }); }
     var badN = 0;
     factures.forEach(function (f) {
       if (f.statut !== 'Émise') return;
@@ -134,7 +145,7 @@
       { c: 'C-05', off: -8, objet: 'Ravitaillement mensuel de 3 PSV — eau douce et soutage', st: 'Envoyé', lignes: [L('T-EAU', 1800), L('T-MGO', 360), L('T-QUA', 450)] },
       { c: 'C-08', off: -40, objet: 'Escale pétrolier produits — Owendo poste 4', st: 'Refusé', lignes: [L('T-PIL', 46000), L('T-REM', 8), L('T-LAM', 2), L('T-QUA', 290)] },
       { c: 'C-07', off: -3, objet: 'Lot de 2 400 t de marchandises diverses', st: 'Brouillon', lignes: [L('T-CONV', 2400), L('T-HAN', 5760)] }
-    ].map(function (x) { var dt = d(x.off); return { id: S.next('DEV'), client: x.c, date: dt, validite: E.addDays(dt, 30), objet: x.objet, lignes: x.lignes, statut: x.st, historique: [{ at: dt, user: 'Nadia Ogoula', action: 'Devis créé' }].concat(x.st !== 'Brouillon' ? [{ at: E.addDays(dt, 1), user: 'Nadia Ogoula', action: 'Envoyé au client' }] : []).concat(x.st === 'Accepté' ? [{ at: E.addDays(dt, 6), user: 'Stéphane Ella', action: 'Accepté par le client' }] : x.st === 'Refusé' ? [{ at: E.addDays(dt, 9), user: 'Stéphane Ella', action: 'Refusé : tarif jugé élevé' }] : []) }; });
+    ].map(function (x) { var dt = d(x.off); return { id: S.next('DEV'), site: (C[x.c] || {}).ville === 'Port-Gentil' ? 'POG' : 'OWE', client: x.c, date: dt, validite: E.addDays(dt, 30), objet: x.objet, lignes: x.lignes, statut: x.st, historique: [{ at: dt, user: 'Nadia Ogoula', action: 'Devis créé' }].concat(x.st !== 'Brouillon' ? [{ at: E.addDays(dt, 1), user: 'Nadia Ogoula', action: 'Envoyé au client' }] : []).concat(x.st === 'Accepté' ? [{ at: E.addDays(dt, 6), user: 'Stéphane Ella', action: 'Accepté par le client' }] : x.st === 'Refusé' ? [{ at: E.addDays(dt, 9), user: 'Stéphane Ella', action: 'Refusé : tarif jugé élevé' }] : []) }; });
     return {
       tarifs: TARIFS0.map(function (t) { return Object.assign({}, t, { maj: d(-60) }); }),
       factures: factures, encaissements: enc, avoirs: [], devisClients: devis,
@@ -144,7 +155,7 @@
   }
   /* Prestations réalisées non encore facturées (alimentées en production par les modules Escales, Services, Terminal, Soutage) */
   function demoPrestations() {
-    function p(i, esc, c, off, tid, qte, src, lib) { var t = TARIFS0.find(function (x) { return x.id === tid; }); return { id: 'PRS-D' + String(i).padStart(3, '0'), escale: esc, client: c, date: d(off), libelle: lib || t.libelle, tarif: tid, activite: t.activite, qte: qte, unite: t.unite, pu: t.pu, statut: 'À facturer', source: src }; }
+    function p(i, esc, c, off, tid, qte, src, lib) { var t = TARIFS0.find(function (x) { return x.id === tid; }); return { id: 'PRS-D' + String(i).padStart(3, '0'), site: esc === 'ESC-2026-0420' ? 'POG' : 'OWE', escale: esc, client: c, date: d(off), libelle: lib || t.libelle, tarif: tid, activite: t.activite, qte: qte, unite: t.unite, pu: t.pu, statut: 'À facturer', source: src }; }
     return [
       p(1, 'ESC-2026-0409', 'C-01', -4, 'T-PIL', 26500, 'services', 'Pilotage entrée — 26 500 GT'),
       p(2, 'ESC-2026-0409', 'C-01', -2, 'T-PIL', 26500, 'services', 'Pilotage sortie — 26 500 GT'),
@@ -161,6 +172,13 @@
   }
   function init() {
     var c = cfg();
+    /* rattachement au bon site : règlements et avoirs suivent leur facture, prestations leur escale */
+    var FS = {}, ES = {}, ch = false;
+    S.raw('factures').forEach(function (f) { if (f && f.site) FS[f.id] = f.site; });
+    S.raw('escales').forEach(function (e) { if (e && e.site) ES[e.id] = e.site; });
+    ['encaissements', 'avoirs'].forEach(function (col) { S.raw(col).forEach(function (r) { if (r && FS[r.facture] && r.site !== FS[r.facture]) { r.site = FS[r.facture]; ch = true; } }); });
+    S.raw('prestations').forEach(function (p) { if (p && p.escale && ES[p.escale] && p.site !== ES[p.escale]) { p.site = ES[p.escale]; ch = true; } });
+    if (ch) S.save();
     if (!c.seedPrs) { var have = {}; S.all('prestations').forEach(function (p) { have[p.id] = 1; }); var arr = S.all('prestations'); demoPrestations().forEach(function (p) { if (!have[p.id]) arr.push(p); }); c.seedPrs = true; S.save(); }
     var T = S.all('tarifs'), ids = {}; T.forEach(function (t) { ids[t.id] = 1; }); var add = TARIFS0.filter(function (t) { return !ids[t.id]; });
     if (add.length) { add.forEach(function (t) { T.push(Object.assign({}, t, { maj: d(-60) })); }); S.save(); }
@@ -233,7 +251,7 @@
       '<div class="fac-doc__parties">' + clientBlock(c) + '<div><small>Escale / objet</small>' + (f.navire ? '<b>' + esc(f.navire) + '</b><br>' : '') + (f.escale ? 'Escale ' + esc(f.escale) + '<br>' : '') + 'Port ' + (f.site === 'POG' ? 'de Port-Gentil' : 'd\'Owendo') + (es && es.poste ? ' · ' + esc(E.posteName(es.poste)) : '') + '<br>' + (f.objet ? esc(f.objet) : 'Prestations portuaires et services aux navires') + '</div></div>' +
       linesDoc(f.lignes || []) + totalsDoc(faHT(f), f.tva != null ? f.tva : cfg().tva, ext) +
       '<div class="fac-doc__cond"><b>Modalités de règlement</b><ul><li>Règlement par virement au compte de Gabon Port Management S.A. (coordonnées bancaires à compléter), en rappelant le numéro de facture.</li><li>Quantités établies d\'après les relevés contradictoires d\'escale (pilotage, remorquage, manutention, bons de livraison).</li><li>Tout retard de paiement peut entraîner des pénalités et la suspension des prestations à crédit.</li><li><span class="fac-demo">Tarifs fictifs de démonstration, à remplacer par le tarif officiel.</span> TVA à ' + F.num(f.tva != null ? f.tva : cfg().tva) + ' % (taux paramétrable).</li></ul></div>' +
-      '<div class="fac-doc__sign"><div>La Directrice administrative et financière<br><b>Christelle Moussounda</b>' + (f.statut !== 'Brouillon' ? '<em>✓ Facture validée et émise</em>' : '<em class="wait">En attente de validation</em>') + '</div><div>Cachet de la société</div></div>' +
+      '<div class="fac-doc__sign"><div>' + esc(signataire(f.site).t) + '<br><b>' + esc(signataire(f.site).n) + '</b>' + (f.statut !== 'Brouillon' ? '<em>✓ Facture validée et émise</em>' : '<em class="wait">En attente de validation</em>') + '</div><div>Cachet de la société</div></div>' +
       '<div class="fac-doc__foot">Gabon Port Management S.A. — concessionnaire de l\'exploitation partielle des ports d\'Owendo et de Port-Gentil pour le compte de l\'OPRAG · B.P. 394 Owendo · Document de démonstration</div></div>';
   }
   function devisDoc(o) {
@@ -250,12 +268,12 @@
     var txt = niv >= 3 ? '<p>Malgré nos relances précédentes, les factures ci-dessous demeurent impayées. Nous vous mettons en demeure de régler la somme de <b>' + F.money(tot) + '</b> sous <b>huit (8) jours</b>. À défaut, les prestations à crédit seront suspendues pour vos prochaines escales.</p>'
       : niv === 2 ? '<p>Sauf erreur de notre part, les factures ci-dessous restent impayées malgré notre premier rappel. Nous vous remercions de procéder à leur règlement, soit <b>' + F.money(tot) + '</b>, sous quinze (15) jours.</p>'
         : '<p>Sauf erreur de notre part, le règlement des factures ci-dessous, arrivées à échéance, ne nous est pas encore parvenu. Nous vous remercions de bien vouloir procéder à leur paiement, soit <b>' + F.money(tot) + '</b>, dans les meilleurs délais.</p>';
-    return '<div class="doc fac-doc">' + docHead(niv >= 3 ? 'MISE EN DEMEURE' : 'RELANCE N° ' + niv, f.id + '-R' + niv, '<div>Owendo, le <b>' + F.date(today()) + '</b></div>') +
-      '<div class="fac-doc__parties">' + clientBlock(c) + '<div><small>Contact</small>Direction administrative et financière — recouvrement<br>Christelle Moussounda</div></div>' +
+    return '<div class="doc fac-doc">' + docHead(niv >= 3 ? 'MISE EN DEMEURE' : 'RELANCE N° ' + niv, f.id + '-R' + niv, '<div>' + signataire(f.site).lieu + ', le <b>' + F.date(today()) + '</b></div>') +
+      '<div class="fac-doc__parties">' + clientBlock(c) + '<div><small>Contact</small>Direction administrative et financière — recouvrement<br>' + esc(signataire(f.site).n) + '</div></div>' +
       '<p>Madame, Monsieur,</p>' + txt +
       '<div class="fac-doc__tw"><table class="fac-doc__tbl"><thead><tr><th>Facture</th><th>Navire</th><th>Échéance</th><th class="num">Retard</th><th class="num">Reste dû TTC</th></tr></thead><tbody>' + lst.map(function (x) { return '<tr><td>' + esc(x.id) + '</td><td>' + esc(x.navire || '—') + '</td><td>' + F.dateShort(x.echeance) + '</td><td class="num">' + retard(x) + ' j</td><td class="num">' + F.num(reste(x)) + '</td></tr>'; }).join('') + '</tbody></table></div>' +
       '<p style="margin-top:14px">Nous vous prions d\'agréer, Madame, Monsieur, l\'expression de nos salutations distinguées.</p>' +
-      '<div class="fac-doc__sign"><div>La Directrice administrative et financière<br><b>Christelle Moussounda</b></div></div><div class="fac-doc__foot">Gabon Port Management S.A. · B.P. 394 Owendo · Document de démonstration</div></div>';
+      '<div class="fac-doc__sign"><div>' + esc(signataire(f.site).t) + '<br><b>' + esc(signataire(f.site).n) + '</b></div></div><div class="fac-doc__foot">Gabon Port Management S.A. · B.P. 394 Owendo · Document de démonstration</div></div>';
   }
   function printModal(m) {
     document.body.classList.add('fac-printing'); m.el.classList.add('fac-print-target');
@@ -313,7 +331,7 @@
   function refresh() { var p = here(); if (viewEl && p[0] === MOD) { var y = window.scrollY; if (p[1] === 'clients' && p[2]) drawClient(decodeURIComponent(p[2])); else draw(); window.scrollTo(0, y); } E.renderBadges(); }
 
   function head(actions) {
-    return '<div class="fac-head"><div><h2>Facturation & clients</h2><p>Armateurs et consignataires · prestations portuaires · factures, encaissements et recouvrement.</p></div><div class="fac-head__acts">' + actions + '</div></div>';
+    return '<div class="fac-head"><div><h2>Facturation & clients</h2><p>' + (E.scope() ? esc(E.siteName(E.scope())) + ' · ' : '') + 'Armateurs et consignataires · prestations portuaires · factures, encaissements et recouvrement.</p></div><div class="fac-head__acts">' + actions + '</div></div>';
   }
   function draw() {
     var v = viewEl, nAF = prsGroups().length, nBr = facts().filter(function (f) { return f.statut === 'Brouillon'; }).length, nEch = emises().filter(isEchue).length;
@@ -371,7 +389,7 @@
     var ageBar = '<div class="fac-age big">' + ages.map(function (v, i) { return v ? '<i style="width:' + (v / totA * 100) + '%;background:' + AGES[i].c + '" title="' + esc(AGES[i].l + ' : ' + F.money(v)) + '"></i>' : ''; }).join('') + '</div><div class="legend" style="margin-top:10px">' + AGES.map(function (a, i) { return '<span><i style="background:' + a.c + '"></i>' + a.l + ' · <b>' + F.short(ages[i]) + '</b></span>'; }).join('') + '</div>';
     var fe = emises().filter(isEchue).sort(function (a, b) { return retard(b) - retard(a); });
     var feH = fe.length ? '<div class="list">' + fe.slice(0, 6).map(function (f) { return '<div class="list__item fac-click" data-act="fa" data-id="' + f.id + '"><div class="list__icon ' + (retard(f) > 60 ? 'tone-red' : 'tone-orange') + '">' + ic('alert') + '</div><div class="list__body"><b>' + esc(f.id) + ' · ' + esc(clNom(f.client)) + '</b><div class="small muted">' + esc(f.navire || '') + ' · échue depuis ' + retard(f) + ' j · ' + (lastRel(f) ? 'relance n° ' + lastRel(f) + ' envoyée' : 'non relancée') + '</div></div><div class="right nowrap"><b>' + F.short(reste(f)) + '</b><div class="small muted">FCFA</div></div></div>'; }).join('') + '</div>' : '<div class="empty">' + ic('check') + '<br>Aucune facture échue.</div>';
-    var tops = S.all('clients').map(function (c) { return { c: c, v: caPeriod(firstOfMonth(-5), today(), c.id) }; }).sort(function (a, b) { return b.v - a.v; }), maxV = (tops[0] && tops[0].v) || 1;
+    var tops = siteClients().map(function (c) { return { c: c, v: caPeriod(firstOfMonth(-5), today(), c.id) }; }).filter(function (t) { return t.v > 0 || !E.scope(); }).sort(function (a, b) { return b.v - a.v; }), maxV = (tops[0] && tops[0].v) || 1;
     var topH = '<div class="list">' + tops.slice(0, 6).map(function (t) { return '<div class="list__item fac-click" data-act="cli" data-id="' + t.c.id + '">' + U.avatar(t.c.nom, null, true) + '<div class="list__body"><b>' + esc(t.c.nom) + '</b><div class="small muted">' + esc(t.c.type) + '</div>' + U.progress(t.v / maxV * 100) + '</div><div class="right nowrap"><b>' + F.short(t.v) + '</b><div class="small muted">FCFA HT</div></div></div>'; }).join('') + '</div>';
     body.innerHTML = '<div class="stack">' + kp +
       '<div class="grid g-2-1"><div class="card"><div class="card__h"><h3>Chiffre d\'affaires mensuel par activité</h3><span class="sub">6 derniers mois · HT · mois en cours partiel</span></div><div class="card__b">' + U.bars({ labels: labels, series: series, stacked: true, money: true, height: 240 }) + '</div></div>' +
@@ -400,7 +418,8 @@
   function billGroup(key) {
     var g = prsGroups().find(function (x) { return x.key === key; }); if (!g) return toast('Ce regroupement n\'existe plus.', 'err');
     var c = cl(g.client), es = escale(g.escale), date = today();
-    var f = { id: S.next('FAC'), type: 'Facture', client: g.client, escale: g.escale || '', navire: es ? es.navire : '', site: es ? es.site : 'OWE', date: date, echeance: E.addDays(date, c.delai || 30), tva: cfg().tva, statut: 'Brouillon', relances: [],
+    var gSite = es ? es.site : (g.items[0].site || E.scope() || siteDe(g.client));
+    var f = { id: facNum(gSite), type: 'Facture', client: g.client, escale: g.escale || '', navire: es ? es.navire : '', site: gSite, date: date, echeance: E.addDays(date, c.delai || 30), tva: cfg().tva, statut: 'Brouillon', relances: [],
       lignes: g.items.map(function (p) { return { tarif: p.tarif || '', activite: actOf(p), libelle: p.libelle, qte: p.qte, unite: p.unite, pu: p.pu, prestation: p.id }; }), historique: [{ at: new Date().toISOString(), user: me(), action: 'Facture créée depuis ' + g.items.length + ' prestation(s)' }] };
     S.add('factures', f);
     g.items.forEach(function (p) { p.statut = 'Facturé'; p.facture = f.id; }); S.save();
@@ -425,7 +444,7 @@
     ], okLabel: 'Ajouter', onSubmit: function (v) {
       var t = tarif(v.tarif); if (!(v.qte > 0)) { toast('La quantité doit être positive.', 'err'); return false; }
       var es = escale(v.escale);
-      S.add('prestations', { escale: v.escale || '', navire: es ? es.navire : '', client: v.client, date: v.date, libelle: v.libelle || t.libelle, tarif: t.id, activite: t.activite, qte: v.qte, unite: t.unite, pu: t.pu, statut: 'À facturer', source: 'manuel' }, 'PRS');
+      S.add('prestations', { site: es ? es.site : (E.scope() || siteDe(v.client)), escale: v.escale || '', navire: es ? es.navire : '', client: v.client, date: v.date, libelle: v.libelle || t.libelle, tarif: t.id, activite: t.activite, qte: v.qte, unite: t.unite, pu: t.pu, statut: 'À facturer', source: 'manuel' }, 'PRS');
       E.log('Prestation ajoutée', t.libelle + ' — ' + clNom(v.client), MOD); toast('Prestation ajoutée à la liste à facturer.'); refresh();
     } });
   }
@@ -435,12 +454,13 @@
     { label: 'N°', render: function (f) { return '<b>' + esc(f.id) + '</b>'; } },
     { label: 'Date', render: function (f) { return F.dateShort(f.date); } },
     { label: 'Client', render: function (f) { return esc(clNom(f.client)) + '<span class="fac-sub">' + esc(f.navire || '') + (f.escale ? ' · ' + esc(f.escale) : '') + '</span>'; } },
-    { label: 'Port', render: function (f) { return siteNom(f.site); } },
+    { label: 'Port', site: true, render: function (f) { return siteNom(f.site); } },
     { label: 'Montant TTC', num: true, render: function (f) { return F.num(faTTC(f)); } },
     { label: 'Reste dû', num: true, render: function (f) { var r = reste(f); return r > 1 ? '<b class="' + (isEchue(f) ? 'fac-red' : '') + '">' + F.num(r) + '</b>' : '<span class="muted">0</span>'; } },
     { label: 'Échéance', render: function (f) { return F.dateShort(f.echeance); } },
     { label: 'Statut', render: faBadge }
   ];
+  function faCols() { return E.scope() ? FA_COLS.filter(function (c) { return !c.site; }) : FA_COLS; }
   function faRows() {
     var s = st.f.fs, q = E.norm(st.f.q), c = st.f.cli;
     return facts().filter(function (f) {
@@ -456,9 +476,9 @@
   function vFact(body) {
     var rows = faRows(), shown = rows.slice(0, st.lim);
     var nBr = facts().filter(function (f) { return f.statut === 'Brouillon'; }).length, nE = emises().filter(isEchue).length;
-    body.innerHTML = '<div class="card"><div class="card__b"><div class="filters"><input class="input" id="fa-q" type="search" placeholder="N°, client, navire, escale…" value="' + esc(st.f.q) + '"><select class="select" id="fa-cli"><option value="">Tous les clients</option>' + S.all('clients').map(function (c) { return '<option value="' + c.id + '"' + (st.f.cli === c.id ? ' selected' : '') + '>' + esc(c.nom) + '</option>'; }).join('') + '</select></div>' +
+    body.innerHTML = '<div class="card"><div class="card__b"><div class="filters"><input class="input" id="fa-q" type="search" placeholder="N°, client, navire, escale…" value="' + esc(st.f.q) + '"><select class="select" id="fa-cli"><option value="">Tous les clients</option>' + siteClients().map(function (c) { return '<option value="' + c.id + '"' + (st.f.cli === c.id ? ' selected' : '') + '>' + esc(c.nom) + '</option>'; }).join('') + '</select></div>' +
       '<div class="chips">' + ['Toutes', 'À valider', 'Non soldées', 'Échues', 'Payées'].map(function (x) { var n = x === 'À valider' ? nBr : x === 'Échues' ? nE : null; return '<button class="chip' + (st.f.fs === x ? ' is-active' : '') + '" data-act="chip" data-g="fs" data-v="' + x + '">' + x + (n ? ' · ' + n : '') + '</button>'; }).join('') + '</div></div>' +
-      U.table(FA_COLS, shown, { onRow: function (f) { openFacture(f.id); }, empty: 'Aucune facture pour ces critères', footer: function () { return '<td colspan="4">' + rows.length + ' facture(s)</td><td class="num">' + F.num(E.sum(rows, faTTC)) + '</td><td class="num">' + F.num(E.sum(rows, reste)) + '</td><td colspan="2"></td>'; } }) +
+      U.table(faCols(), shown, { onRow: function (f) { openFacture(f.id); }, empty: 'Aucune facture pour ces critères', footer: function () { return '<td colspan="' + (E.scope() ? 3 : 4) + '">' + rows.length + ' facture(s)</td><td class="num">' + F.num(E.sum(rows, faTTC)) + '</td><td class="num">' + F.num(E.sum(rows, reste)) + '</td><td colspan="2"></td>'; } }) +
       (rows.length > st.lim ? '<div class="fac-more"><button class="btn sm" data-act="more">Afficher plus (' + (rows.length - st.lim) + ')</button></div>' : '') + '</div>';
     body.querySelector('#fa-q').addEventListener('change', function (e) { st.f.q = e.target.value; draw(); });
     body.querySelector('#fa-cli').addEventListener('change', function (e) { st.f.cli = e.target.value; draw(); });
@@ -473,7 +493,7 @@
         { name: 'date', label: 'Date de facture', type: 'date', required: true },
         { name: 'escale', label: 'Escale', type: 'select', options: esL, empty: 'Sans escale' },
         { name: 'navire', label: 'Navire', placeholder: 'ex. MV Atlantic Akanda' },
-        { name: 'site', label: 'Port', type: 'select', options: [{ v: 'OWE', l: 'Owendo' }, { v: 'POG', l: 'Port-Gentil' }] },
+        { name: 'site', label: 'Port', type: 'select', options: E.scope() ? [{ v: E.scope(), l: siteNom(E.scope()) }] : [{ v: 'OWE', l: 'Owendo' }, { v: 'POG', l: 'Port-Gentil' }] },
         { name: 'objet', label: 'Objet', placeholder: 'Prestations portuaires et services aux navires' }
       ], f) + ed.html,
       actions: [{ label: 'Annuler' }, { label: 'Enregistrer en brouillon', cls: 'primary', icon: 'check', onClick: function (close, el) {
@@ -487,9 +507,10 @@
   }
   function newFacture(pre) {
     pre = pre || {};
-    factureForm({ client: pre.client || 'C-01', date: today(), site: 'OWE', lignes: pre.lignes || [{}], escale: pre.escale || '', navire: pre.navire || '', objet: pre.objet || '' }, 'Nouvelle facture', function (v, lignes) {
+    factureForm({ client: pre.client || (E.scope() === 'POG' ? 'C-05' : 'C-01'), date: today(), site: E.scope() || (pre.client ? siteDe(pre.client) : 'OWE'), lignes: pre.lignes || [{}], escale: pre.escale || '', navire: pre.navire || '', objet: pre.objet || '' }, 'Nouvelle facture', function (v, lignes) {
       var c = cl(v.client);
-      var f = { id: S.next('FAC'), type: 'Facture', client: v.client, escale: v.escale, navire: v.navire, site: v.site, objet: v.objet, date: v.date, echeance: E.addDays(v.date, c.delai || 30), tva: cfg().tva, lignes: lignes, statut: 'Brouillon', relances: [], devis: pre.devis || '', historique: [{ at: new Date().toISOString(), user: me(), action: pre.devis ? 'Facture créée depuis le devis ' + pre.devis : 'Facture créée' }] };
+      var fSite = E.scope() || v.site || 'OWE';
+      var f = { id: facNum(fSite), type: 'Facture', client: v.client, escale: v.escale, navire: v.navire, site: fSite, objet: v.objet, date: v.date, echeance: E.addDays(v.date, c.delai || 30), tva: cfg().tva, lignes: lignes, statut: 'Brouillon', relances: [], devis: pre.devis || '', historique: [{ at: new Date().toISOString(), user: me(), action: pre.devis ? 'Facture créée depuis le devis ' + pre.devis : 'Facture créée' }] };
       S.add('factures', f);
       if (pre.devis) { var o = S.get('devisClients', pre.devis); if (o) { o.statut = 'Converti'; o.facture = f.id; o.historique.push({ at: new Date().toISOString(), user: me(), action: 'Converti en facture ' + f.id }); S.save(); } }
       E.log('Facture créée', f.id + ' — ' + c.nom + ' — ' + F.money(faTTC(f)) + ' TTC', MOD);
@@ -512,7 +533,7 @@
     var acts = [];
     if (s === 'Brouillon') {
       acts.push({ label: 'Supprimer', cls: 'danger', icon: 'trash', onClick: function (close) { U.confirm('Supprimer le brouillon', 'Supprimer définitivement le brouillon ' + esc(f.id) + ' ? Les prestations liées redeviennent « à facturer ».', 'Supprimer', function () { prs().forEach(function (p) { if (p.facture === f.id) { p.statut = 'À facturer'; delete p.facture; } }); S.remove('factures', f.id); E.log('Brouillon supprimé', f.id, MOD); toast('Brouillon ' + f.id + ' supprimé.'); close(); refresh(); }, 'danger'); } });
-      acts.push({ label: 'Modifier', icon: 'edit', onClick: function (close) { close(); factureForm(f, 'Modifier ' + f.id, function (v, lignes) { var cc = cl(v.client); Object.assign(f, { client: v.client, escale: v.escale, navire: v.navire, site: v.site, objet: v.objet, date: v.date, echeance: E.addDays(v.date, cc.delai || 30), lignes: lignes }); f.historique.push({ at: new Date().toISOString(), user: me(), action: 'Brouillon modifié' }); S.save(); E.log('Facture modifiée', f.id, MOD); toast('Brouillon mis à jour.'); refresh(); openFacture(f.id); }); } });
+      acts.push({ label: 'Modifier', icon: 'edit', onClick: function (close) { close(); factureForm(f, 'Modifier ' + f.id, function (v, lignes) { var cc = cl(v.client); Object.assign(f, { client: v.client, escale: v.escale, navire: v.navire, site: E.scope() || v.site || f.site, objet: v.objet, date: v.date, echeance: E.addDays(v.date, cc.delai || 30), lignes: lignes }); f.historique.push({ at: new Date().toISOString(), user: me(), action: 'Brouillon modifié' }); S.save(); E.log('Facture modifiée', f.id, MOD); toast('Brouillon mis à jour.'); refresh(); openFacture(f.id); }); } });
       acts.push({ label: canFin() ? 'Valider et émettre' : 'Valider (DAF)', cls: 'success', icon: 'check', onClick: function (close) {
         if (!canFin()) { toast('La validation des factures relève de la Direction administrative et financière.', 'err'); return; }
         var enc = encours(f.client) + faTTC(f);
@@ -549,7 +570,7 @@
       var f = S.get('factures', v.facture), r = reste(f);
       if (!(v.montant > 0)) { toast('Montant invalide.', 'err'); return false; }
       if (v.montant > r + 1) { toast('Le montant dépasse le reste dû (' + F.money(r) + ').', 'err'); return false; }
-      var e = S.add('encaissements', { id: S.next('ENC'), facture: f.id, client: f.client, date: v.date, montant: Math.round(v.montant), mode: v.mode, banque: v.mode === 'Espèces' ? 'Caisse' : v.banque, reference: v.reference || (v.mode === 'Espèces' ? 'Reçu de caisse' : '') });
+      var e = S.add('encaissements', { id: S.next('ENC'), site: f.site, facture: f.id, client: f.client, date: v.date, montant: Math.round(v.montant), mode: v.mode, banque: v.mode === 'Espèces' ? 'Caisse' : v.banque, reference: v.reference || (v.mode === 'Espèces' ? 'Reçu de caisse' : '') });
       f.historique = f.historique || []; f.historique.push({ at: new Date().toISOString(), user: me(), action: 'Encaissement ' + e.id + ' : ' + F.money(e.montant) + ' (' + e.mode + ')' }); S.save();
       E.log('Encaissement enregistré', e.id + ' — ' + f.id + ' — ' + F.money(e.montant), MOD);
       toast(statut(f) === 'Payée' ? 'Facture ' + f.id + ' soldée.' : 'Encaissement enregistré — reste ' + F.money(reste(f)) + '.');
@@ -576,8 +597,8 @@
       { name: 'note', label: 'Commentaire', type: 'textarea' }
     ], values: { montant: Math.round(reste(f) * 0.1) }, okLabel: 'Établir l\'avoir', onSubmit: function (v) {
       if (!(v.montant > 0) || v.montant > reste(f) + 1) { toast('Le montant doit être compris entre 1 et ' + F.money(reste(f)) + '.', 'err'); return false; }
-      var a = S.add('avoirs', { id: S.next('AV'), facture: f.id, client: f.client, date: today(), montant: Math.round(v.montant), ht: Math.round(v.montant / (1 + (f.tva || 18) / 100)), motif: v.motif, note: v.note, user: me() });
-      S.add('encaissements', { id: S.next('ENC'), facture: f.id, client: f.client, date: today(), montant: a.montant, mode: 'Avoir', banque: '—', reference: a.id });
+      var a = S.add('avoirs', { id: S.next('AV'), site: f.site, facture: f.id, client: f.client, date: today(), montant: Math.round(v.montant), ht: Math.round(v.montant / (1 + (f.tva || 18) / 100)), motif: v.motif, note: v.note, user: me() });
+      S.add('encaissements', { id: S.next('ENC'), site: f.site, facture: f.id, client: f.client, date: today(), montant: a.montant, mode: 'Avoir', banque: '—', reference: a.id });
       f.historique.push({ at: new Date().toISOString(), user: me(), action: 'Avoir ' + a.id + ' : ' + F.money(a.montant) + ' (' + v.motif + ')' }); S.save();
       E.log('Avoir établi', a.id + ' sur ' + f.id + ' — ' + F.money(a.montant), MOD); toast('Avoir ' + a.id + ' établi.'); refresh(); setTimeout(function () { openFacture(f.id); }, 50);
     } });
@@ -604,8 +625,8 @@
     ed.bind(); return m;
   }
   function newDevis() {
-    devisForm({ client: 'C-01', validite: d(30), lignes: [{ tarif: 'T-PIL' }, { tarif: 'T-REM' }, { tarif: 'T-LAM', qte: 2 }, { tarif: 'T-QUA' }] }, 'Nouveau devis armateur', function (v, l) {
-      var o = S.add('devisClients', { id: S.next('DEV'), client: v.client, date: today(), validite: v.validite, objet: v.objet, navire: v.navire, lignes: l, statut: 'Brouillon', historique: [{ at: new Date().toISOString(), user: me(), action: 'Devis créé' }] });
+    devisForm({ client: E.scope() === 'POG' ? 'C-05' : 'C-01', validite: d(30), lignes: [{ tarif: 'T-PIL' }, { tarif: 'T-REM' }, { tarif: 'T-LAM', qte: 2 }, { tarif: 'T-QUA' }] }, 'Nouveau devis armateur', function (v, l) {
+      var o = S.add('devisClients', { id: S.next('DEV'), site: E.scope() || siteDe(v.client), client: v.client, date: today(), validite: v.validite, objet: v.objet, navire: v.navire, lignes: l, statut: 'Brouillon', historique: [{ at: new Date().toISOString(), user: me(), action: 'Devis créé' }] });
       E.log('Devis créé', o.id + ' — ' + clNom(o.client), MOD); toast('Devis ' + o.id + ' créé.'); refresh(); openDevis(o.id);
     });
   }
@@ -646,7 +667,7 @@
 
   /* ------------------------------------------------------------------ balance âgée */
   function balRows() {
-    return S.all('clients').map(function (c) { var a = aging(c.id); return { c: c, a: a, tot: E.sum(a), ech: a[1] + a[2] + a[3] + a[4] }; }).filter(function (r) { return r.tot > 1; }).sort(function (x, y) { return y.ech - x.ech || y.tot - x.tot; });
+    return siteClients().map(function (c) { var a = aging(c.id); return { c: c, a: a, tot: E.sum(a), ech: a[1] + a[2] + a[3] + a[4] }; }).filter(function (r) { return r.tot > 1; }).sort(function (x, y) { return y.ech - x.ech || y.tot - x.tot; });
   }
   function vBal(body) {
     var rows = balRows(), all = aging(), tot = E.sum(all) || 1;
@@ -661,7 +682,7 @@
   /* ------------------------------------------------------------------ clients */
   function vClients(body) {
     var y0 = firstOfMonth(-11);
-    body.innerHTML = '<div class="fac-cards">' + S.all('clients').map(function (c) {
+    body.innerHTML = '<div class="fac-cards">' + siteClients().map(function (c) {
       var ca = caPeriod(y0, today(), c.id), en = encours(c.id), ec = echu(c.id), use = c.plafond ? en / c.plafond * 100 : 0;
       return '<div class="card fac-card" data-act="cli" data-id="' + c.id + '"><div class="card__b"><div class="fac-card__top">' + U.avatar(c.nom) + '<div style="min-width:0"><b>' + esc(c.nom) + '</b><span class="small muted">' + esc(c.type) + ' · ' + esc(c.ville) + '</span></div></div>' +
         '<div class="fac-kv2"><div><small>CA 12 mois (HT)</small><b>' + F.short(ca) + '</b></div><div><small>Encours TTC</small><b class="' + (ec ? 'fac-red' : '') + '">' + F.short(en) + '</b></div></div>' +
@@ -684,7 +705,7 @@
       U.kpi({ label: 'Échu', value: F.short(ec), unit: 'FCFA', icon: 'alert', tone: ec ? 'red' : 'green', foot: ec ? 'à recouvrer' : 'aucun retard' }) +
       U.kpi({ label: 'Plafond d\'encours', value: F.short(c.plafond), unit: 'FCFA', icon: 'shield', tone: use > 90 ? 'red' : 'blue', foot: 'utilisé à ' + F.pct(use) + ' · paiement à ' + (c.delai || 30) + ' j' }) + '</div>' +
       '<div class="card"><div class="card__h"><h3>Ancienneté de l\'encours</h3></div><div class="card__b"><div class="fac-age big">' + ag.map(function (v, i) { return v ? '<i style="width:' + (v / tot * 100) + '%;background:' + AGES[i].c + '"></i>' : ''; }).join('') + '</div><div class="legend" style="margin-top:10px">' + AGES.map(function (a, i) { return '<span><i style="background:' + a.c + '"></i>' + a.l + ' · <b>' + F.short(ag[i]) + '</b></span>'; }).join('') + '</div></div></div>' +
-      '<div class="grid g-2-1"><div class="card"><div class="card__h"><h3>Factures</h3><span class="sub">' + fs.length + '</span></div>' + U.table(FA_COLS.filter(function (x) { return x.label !== 'Client'; }).concat([]), fs.slice(0, 15), { onRow: function (f) { openFacture(f.id); }, empty: 'Aucune facture' }) + '</div>' +
+      '<div class="grid g-2-1"><div class="card"><div class="card__h"><h3>Factures</h3><span class="sub">' + fs.length + '</span></div>' + U.table(faCols().filter(function (x) { return x.label !== 'Client'; }).concat([]), fs.slice(0, 15), { onRow: function (f) { openFacture(f.id); }, empty: 'Aucune facture' }) + '</div>' +
       '<div class="card"><div class="card__h"><h3>Historique des escales</h3><span class="sub">' + H.length + '</span></div><div class="list">' + (H.length ? H.slice(0, 10).map(function (h) { return '<div class="list__item"><div class="list__icon tone-blue">' + ic('ship') + '</div><div class="list__body"><b>' + esc(h.navire || h.id) + '</b><div class="small muted">' + esc(h.id) + ' · ' + siteNom(h.site) + ' · ' + F.dateShort(h.date) + '</div></div><div class="right">' + U.badge(h.statut) + (h.montant ? '<div class="small muted">' + F.short(h.montant) + ' HT</div>' : '') + '</div></div>'; }).join('') : '<div class="empty">Aucune escale</div>') + '</div></div></div>' +
       '<div class="card"><div class="card__h"><h3>Règlements reçus</h3><span class="sub">' + es.length + '</span></div>' + U.table(ENC_COLS.filter(function (x) { return x.label !== 'Client'; }), es.slice(0, 12), { empty: 'Aucun règlement' }) + '</div></div>';
     var root = viewEl.querySelector('#fac-root');
@@ -713,7 +734,7 @@
         { label: 'Prix HT', num: true, render: function (t) { return '<b>' + F.num(t.pu) + '</b>' + (t.marge ? '<span class="fac-sub">dont marge ' + F.num(t.marge) + '</span>' : ''); } },
         { label: '', render: function (t) { return '<button class="btn sm" data-act="tar" data-id="' + t.id + '">' + ic('edit') + 'Modifier</button>'; } }
       ], T) + '</div>' +
-      '<div class="card"><div class="card__h"><h3>Paramètres de facturation</h3></div><div class="card__b"><dl class="kv"><dt>Taux de TVA</dt><dd><b>' + F.num(cfg().tva, cfg().tva % 1 ? 1 : 0) + ' %</b></dd><dt>Numérotation</dt><dd>FAC-2026-xxxx (séquentielle)</dd><dt>Échéance</dt><dd>selon le délai de chaque client</dd><dt>Devise</dt><dd>Franc CFA (XAF)</dd></dl><button class="btn" style="margin-top:14px" data-act="tva">' + ic('settings') + 'Modifier le taux de TVA</button><p class="small muted" style="margin-top:10px">Le taux s\'applique aux nouvelles factures ; les factures déjà émises conservent leur taux.</p></div></div></div></div>';
+      '<div class="card"><div class="card__h"><h3>Paramètres de facturation</h3></div><div class="card__b"><dl class="kv"><dt>Taux de TVA</dt><dd><b>' + F.num(cfg().tva, cfg().tva % 1 ? 1 : 0) + ' %</b></dd><dt>Numérotation</dt><dd>' + (E.scope() ? 'FAC-' + E.scope() + '-2026-xxxx' : 'FAC-OWE-2026-xxxx · FAC-POG-2026-xxxx') + ' (séquentielle par port)</dd><dt>Échéance</dt><dd>selon le délai de chaque client</dd><dt>Devise</dt><dd>Franc CFA (XAF)</dd></dl><button class="btn" style="margin-top:14px" data-act="tva">' + ic('settings') + 'Modifier le taux de TVA</button><p class="small muted" style="margin-top:10px">Le taux s\'applique aux nouvelles factures ; les factures déjà émises conservent leur taux.</p></div></div></div></div>';
   }
   function editTarif(id) {
     var t = tarif(id); if (!t) return;

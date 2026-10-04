@@ -52,7 +52,7 @@
     ];
     var N = {}; escalesAll().forEach(function (x) { N[x.id] = x; });
     function o(off, h, esc0, nav, c, p, q, ql, moyen, st, cv0, extra) {
-      var e = N[esc0]; var r = { id: S.next('SOU'), escale: esc0 || '', navire: e ? e.navire : nav, imo: e ? e.imo : '', pavillon: e ? e.pavillon : '', client: e ? e.client : c, produit: p, qteDemandee: q, qteLivree: ql || 0, moyen: moyen, creneau: dt(off, h), statut: st, cuve: cv0 || '', historique: [{ at: dt(off - 2, 9), user: 'Linda Nzamba', action: 'Commande reçue du consignataire' }] };
+      var e = N[esc0]; var r = { id: S.next('SOU'), site: 'POG', escale: esc0 || '', navire: e ? e.navire : nav, imo: e ? e.imo : '', pavillon: e ? e.pavillon : '', client: e ? e.client : c, produit: p, qteDemandee: q, qteLivree: ql || 0, moyen: moyen, creneau: dt(off, h), statut: st, cuve: cv0 || '', historique: [{ at: dt(off - 2, 9), user: 'Linda Nzamba', action: 'Commande reçue du consignataire' }] };
       if (st !== 'Demandée') r.historique.push({ at: dt(off - 1, 11), user: 'Linda Nzamba', action: 'Commande validée — créneau confirmé' });
       if (st === 'En livraison' || st === 'Livrée' || st === 'Facturée') { r.debut = dt(off, h); r.historique.push({ at: r.debut, user: 'Josué Ogandaga', action: 'Début de livraison depuis ' + cv0 }); }
       if (st === 'Livrée' || st === 'Facturée') { var P = PROD[p]; r.fin = dt(off, h + (p === 'EAU' ? 3 : 5)); r.densite = +(P.d0 + ((q * 7) % 9 - 4) / 1000).toFixed(3); r.temperature = p === 'IFO' ? 46 : 29 + (q % 4); r.echantillon = 'GPM-' + String(4100 + q % 900); r.chefBord = ['Capt. A. Mensah', 'C/E P. Dubois', 'C/E R. Santos', 'C/E K. Owusu'][q % 4]; r.historique.push({ at: r.fin, user: 'Josué Ogandaga', action: 'Livraison terminée : ' + ql + ' m³' }); }
@@ -95,18 +95,23 @@
     rec.forEach(function (r) { if (r.statut === 'Réceptionnée') mv.push({ date: r.date + 'T08:00', cuve: r.cuve, type: 'Entrée', qte: r.qte, ref: r.id, libelle: 'Réception — ' + r.fournisseur }); });
     mv.push({ date: dt(-16, 17), cuve: 'CV-03', type: 'Ajustement', qte: -3, ref: 'JAU-' + d(-16).replace(/-/g, ''), libelle: 'Jaugeage contradictoire de fin de quinzaine' });
     cv.forEach(function (c) { var L = c.niveau; mv.filter(function (m) { return m.cuve === c.id; }).sort(function (a, b) { return b.date.localeCompare(a.date); }).forEach(function (m) { m.solde = L; L -= m.qte; }); });
-    mv.sort(function (a, b) { return a.date.localeCompare(b.date); }).forEach(function (m) { m.id = S.next('MVS'); });
+    mv.sort(function (a, b) { return a.date.localeCompare(b.date); }).forEach(function (m) { m.id = S.next('MVS'); m.site = 'POG'; });
+    rec.forEach(function (r) { r.site = 'POG'; });
     return { cuves: cv.map(function (c) { return Object.assign(c, { maj: dt(0, 7) }); }), soutages: list, receptionsSoutage: rec, mouvementsSoutage: mv.reverse() };
   }
   /* Les livraisons non facturées ont leur ligne « prestations » pour le module Facturation */
   function init() {
-    var P = S.all('prestations'), changed = false;
+    /* Le soutage n'existe qu'à Port-Gentil : toutes ses données sont rattachées au site POG (corrige aussi d'anciennes données). */
+    var changed = false;
+    ['cuves', 'soutages', 'receptionsSoutage', 'mouvementsSoutage'].forEach(function (col) { S.raw(col).forEach(function (r) { if (r && r.site !== 'POG') { r.site = 'POG'; changed = true; } }); });
+    S.raw('prestations').forEach(function (p) { if (p && p.source === 'soutage' && p.site !== 'POG') { p.site = 'POG'; changed = true; } });
+    var P = S.all('prestations');
     cmds().forEach(function (o) { if (o.statut === 'Livrée' && o.prestation && !S.get('prestations', o.prestation)) { P.push(prsFor(o, o.prestation, String(o.fin || o.creneau).slice(0, 10))); changed = true; } });
     if (changed) S.save();
   }
   function prsFor(o, id, date) {
     var P = PROD[o.produit];
-    return { id: id, escale: o.escale || '', navire: o.navire, client: o.client, date: date || today(), libelle: P.l + ' — ' + F.num(o.qteLivree) + ' m³ livrés à ' + o.navire + ' (' + o.id + ')', tarif: P.tarif, activite: 'Soutage & eau', qte: o.qteLivree, unite: 'm³', pu: tarifPU(o.produit), statut: 'À facturer', source: 'soutage', ref: o.id };
+    return { id: id, site: 'POG', escale: o.escale || '', navire: o.navire, client: o.client, date: date || today(), libelle: P.l + ' — ' + F.num(o.qteLivree) + ' m³ livrés à ' + o.navire + ' (' + o.id + ')', tarif: P.tarif, activite: 'Soutage & eau', qte: o.qteLivree, unite: 'm³', pu: tarifPU(o.produit), statut: 'À facturer', source: 'soutage', ref: o.id };
   }
 
   /* ------------------------------------------------------------------ calculs */
@@ -115,7 +120,7 @@
   function autonomie(c) { var c30 = E.sum(cuves().filter(function (x) { return x.produit === c.produit; }), function (x) { return conso30(x.id); }); var stock = E.sum(cuves().filter(function (x) { return x.produit === c.produit; }), 'niveau'); return c30 ? stock / c30 : null; }
   function densOK(o) { var P = PROD[o.produit]; return o.densite == null ? null : o.densite >= P.dmin && o.densite <= P.dmax; }
   function v15(o) { var P = PROD[o.produit]; return o.temperature == null ? o.qteLivree : o.qteLivree * (1 - P.alpha * (o.temperature - 15)); }
-  function addMv(cv, type, qte, ref, lib) { var c = cuve(cv); S.add('mouvementsSoutage', { id: S.next('MVS'), date: now(), cuve: cv, type: type, qte: qte, ref: ref, libelle: lib, solde: c ? c.niveau : 0, user: me() }); }
+  function addMv(cv, type, qte, ref, lib) { var c = cuve(cv); S.add('mouvementsSoutage', { id: S.next('MVS'), site: 'POG', date: now(), cuve: cv, type: type, qte: qte, ref: ref, libelle: lib, solde: c ? c.niveau : 0, user: me() }); }
   function checkSeuil(c) { if (bas(c)) { E.notify('Cuve sous le seuil d\'alerte', c.nom + ' : ' + m3(c.niveau) + ' (seuil ' + m3(c.seuil) + ')', '#/soutage', 'red'); U.toast(c.nom + ' passe sous le seuil d\'alerte : prévoir une réception.', 'err'); } }
 
   /* ------------------------------------------------------------------ vues */
@@ -353,7 +358,7 @@
     ], values: { client: 'C-05', produit: 'MGO', moyen: MOYENS[1], date: d(1), heure: '08:00' }, okLabel: 'Enregistrer la commande', onSubmit: function (v) {
       if (!(v.qte > 0)) { U.toast('Quantité invalide.', 'err'); return false; }
       var es = escale(v.escale);
-      var o = S.add('soutages', { id: S.next('SOU'), escale: v.escale || '', navire: v.navire, imo: es ? es.imo : '', pavillon: es ? es.pavillon : '', client: v.client, produit: v.produit, qteDemandee: v.qte, qteLivree: 0, moyen: v.moyen, creneau: v.date + 'T' + v.heure, statut: 'Demandée', cuve: '', historique: [{ at: now(), user: me(), action: 'Commande enregistrée' }] });
+      var o = S.add('soutages', { id: S.next('SOU'), site: 'POG', escale: v.escale || '', navire: v.navire, imo: es ? es.imo : '', pavillon: es ? es.pavillon : '', client: v.client, produit: v.produit, qteDemandee: v.qte, qteLivree: 0, moyen: v.moyen, creneau: v.date + 'T' + v.heure, statut: 'Demandée', cuve: '', historique: [{ at: now(), user: me(), action: 'Commande enregistrée' }] });
       E.log('Commande de soutage', o.id + ' · ' + o.navire + ' · ' + m3(o.qteDemandee) + ' ' + PROD[o.produit].s, MOD);
       E.notify('Commande de soutage à valider', o.navire + ' — ' + PROD[o.produit].l, '#/soutage/commandes/' + o.id, 'orange');
       U.toast('Commande ' + o.id + ' enregistrée, en attente de validation.'); st.fs = 'En cours'; if (st.tab !== 'commandes') E.go(MOD + '/commandes'); else refresh();
@@ -373,7 +378,7 @@
       var c = cuve(v.cuve); if (!(v.qte > 0)) { U.toast('Quantité invalide.', 'err'); return false; }
       if (v.statut === 'Réceptionnée' && c.niveau + v.qte > c.capacite) { U.toast('Débordement : le creux disponible est de ' + m3(c.capacite - c.niveau) + '.', 'err'); return false; }
       if (c.produit === 'EAU' && /p[ée]trol/i.test(v.fournisseur)) v.fournisseur = 'Réseau d\'eau potable de Port-Gentil (démo)';
-      var r = S.add('receptionsSoutage', { id: S.next('RSO'), date: v.date, cuve: c.id, produit: c.produit, qte: v.qte, fournisseur: v.fournisseur, bl: v.bl, transport: c.produit === 'EAU' ? 'Adduction réseau' : 'Pipeline dépôt → parc soutage', statut: v.statut, user: me() });
+      var r = S.add('receptionsSoutage', { id: S.next('RSO'), site: 'POG', date: v.date, cuve: c.id, produit: c.produit, qte: v.qte, fournisseur: v.fournisseur, bl: v.bl, transport: c.produit === 'EAU' ? 'Adduction réseau' : 'Pipeline dépôt → parc soutage', statut: v.statut, user: me() });
       if (v.statut === 'Réceptionnée') { c.niveau += v.qte; c.maj = now(); S.save(); addMv(c.id, 'Entrée', v.qte, r.id, 'Réception — ' + v.fournisseur); }
       E.log('Réception de produit ' + v.statut.toLowerCase(), r.id + ' · ' + c.nom + ' · ' + m3(v.qte), MOD);
       U.toast(v.statut === 'Réceptionnée' ? c.nom + ' : +' + m3(v.qte) + ' (stock ' + m3(c.niveau) + ').' : 'Réception programmée le ' + F.date(v.date) + '.'); refresh();
@@ -423,6 +428,6 @@
   }
   function badge() { return cmds().filter(function (o) { return o.statut === 'Demandée'; }).length + cuves().filter(bas).length; }
 
-  E.register({ id: MOD, label: 'Soutage & eau douce', title: 'Soutage & eau douce', icon: 'fuel', group: 'Exploitation portuaire', roles: ['exploitation', 'commercial'],
+  E.register({ id: MOD, label: 'Soutage & eau douce', title: 'Soutage & eau douce', icon: 'fuel', group: 'Exploitation portuaire', sites: ['POG'], roles: ['exploitation', 'commercial'],
     seed: seed, init: init, render: render, pending: pending, summary: summary, search: search, badge: badge });
 })();

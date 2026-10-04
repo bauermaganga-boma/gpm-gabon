@@ -38,7 +38,28 @@
   function offres() { return E.store.all('offres'); }
   function offre(id) { return id ? E.store.get('offres', id) : null; }
   function cand(id) { return E.store.get('candidatures', id); }
-  function offTitle(c) { var o = offre(c.offreId); return o ? o.titre : (c.offreTitre && !c.offreId ? c.offreTitre : 'Candidature spontanée'); }
+  function offTitle(c) { var o = offreAny(c.offreId); return o ? o.titre : (c.offreTitre && !c.offreId ? c.offreTitre : 'Candidature spontanée'); }
+  /* ---- espaces par site ----
+     Une offre appartient au site de son lieu (« Owendo et Port-Gentil » : rattachée à Libreville, siège) ; une candidature
+     au site de son offre, ou — candidature spontanée ou offre commune aux deux ports — au site souhaité / à la ville du candidat. */
+  function offreAny(id) { return id ? (offre(id) || E.store.raw('offres').find(function (o) { return o.id === id; }) || null) : null; }
+  function both(lieu) { return /Port-Gentil/i.test(lieu || '') && /Owendo|Libreville/i.test(lieu || ''); }
+  function siteOfOffre(o) { if (!o) return ''; if (o.site === 'OWE' || o.site === 'POG') return o.site; return /Port-Gentil/i.test(o.lieu || '') && !both(o.lieu) ? 'POG' : 'OWE'; }
+  function siteOfCand(c, w) {
+    var o = offreAny(c.offreId), pref = String((w && (w.site || w.siteSouhaite || w.lieu || w.port)) || c.siteSouhaite || '');
+    if (o && !both(o.lieu)) return siteOfOffre(o);
+    if (/^POG$|Port-Gentil/i.test(pref)) return 'POG'; if (/^OWE$|Owendo|Libreville/i.test(pref)) return 'OWE';
+    return /Port-Gentil/i.test(c.ville || '') ? 'POG' : (o ? siteOfOffre(o) : 'OWE');
+  }
+  var RH = { OWE: { drh: 'Mbina Aurélie', titre: 'La Responsable des ressources humaines', charge: 'Allogho Kevin', ville: 'Owendo', adr: 'Zone portuaire d’Owendo — B.P. 394 Libreville, Gabon', lieux: ['Salle de réunion RH — siège Owendo', 'Bureau d’exploitation — quai', 'Simulateur de grue (test pratique)', 'Visioconférence', 'Centre médical du port'] },
+    POG: { drh: 'Nziengui Prisca', titre: 'La Chargée des ressources humaines', charge: 'Nziengui Prisca', ville: 'Port-Gentil', adr: 'Agence de Port-Gentil — zone portuaire, B.P. 1051 Port-Gentil, Gabon', lieux: ['Agence de Port-Gentil — salle de réunion', 'Appontement de soutage (mise en situation)', 'Quai commercial — Port-Gentil', 'Visioconférence', 'Centre médical du port'] } };
+  function rh(site) { return RH[site || E.scope() || 'OWE'] || RH.OWE; }
+  /* sites des données (au démarrage, en vue globale) : évite le rattachement au hasard des textes citant les deux ports */
+  function fixSites() {
+    E.store.raw('offres').forEach(function (o) { if (o.site !== 'OWE' && o.site !== 'POG') o.site = siteOfOffre(o); });
+    E.store.raw('candidatures').forEach(function (c) { var o = offreAny(c.offreId); if ((o && !both(o.lieu)) || !c.siteFixe) { c.site = siteOfCand(c); c.siteFixe = true; } });
+    E.store.save();
+  }
   function empByName(n) { var k = E.norm(n); return E.store.all('employes').find(function (e) { return E.norm(e.nom).indexOf(k) === 0; }); }
   function dirCode(name) { if (!name) return ''; var d = E.store.all('directions').find(function (x) { return x.nom === name || x.id === name; }); return d ? d.id : ''; }
   function stars(n, lg) { var r = Math.round(+n || 0), s = ''; for (var i = 1; i <= 5; i++) s += '<span class="' + (i <= r ? 'on' : 'off') + '">★</span>'; return '<span class="rh-stars' + (lg ? ' lg' : '') + '" title="' + (n ? fmt.num(n, 1) + ' / 5' : 'Non évalué') + '">' + s + '</span>'; }
@@ -58,9 +79,9 @@
     w.document.write('<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>' + esc(title) + '</title><base href="' + base + '"><link rel="stylesheet" href="css/erp.css"><link rel="stylesheet" href="css/rh.css"></head><body class="rh-print">' + html + '<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>');
     w.document.close();
   }
-  function nextOffreId() { var max = 0; offres().forEach(function (o) { var m = /OF-\d{4}-(\d+)/.exec(o.id); if (m && +m[1] > max) max = +m[1]; }); return 'OF-2026-' + String(max + 1).padStart(3, '0'); }
-  function nextCandId() { var max = 400; cands().forEach(function (c) { var m = /CAND-\d{4}-(\d+)/.exec(c.id); if (m && +m[1] > max) max = +m[1]; }); return 'CAND-2026-' + String(max + 1).padStart(4, '0'); }
-  function nextMat() { var max = 0; E.store.all('employes').forEach(function (e) { var n = +String(e.id).replace(/\D/g, ''); if (n > max) max = n; }); return 'MAT-' + (max + 7); }
+  function nextOffreId() { var max = 0; E.store.raw('offres').forEach(function (o) { var m = /OF-\d{4}-(\d+)/.exec(o.id); if (m && +m[1] > max) max = +m[1]; }); return 'OF-2026-' + String(max + 1).padStart(3, '0'); }
+  function nextCandId() { var max = 400; E.store.raw('candidatures').forEach(function (c) { var m = /CAND-\d{4}-(\d+)/.exec(c.id); if (m && +m[1] > max) max = +m[1]; }); return 'CAND-2026-' + String(max + 1).padStart(4, '0'); }
+  function nextMat() { var max = 0; E.store.raw('employes').forEach(function (e) { var n = +String(e.id).replace(/\D/g, ''); if (n > max) max = n; }); return 'MAT-' + (max + 7); }
   function mailOf(nom) { var w = String(nom).split(/\s+/); return E.norm(w[w.length - 1]).replace(/[^a-z]/g, '') + '.' + E.norm(w[0]).replace(/[^a-z]/g, '') + '@gpm-demo.ga'; }
 
   /* ------------------------------------------------------------ données d'exemple
@@ -233,7 +254,7 @@
   function readWeb() { try { var v = JSON.parse(localStorage.getItem(WEB_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
   function importSite(silent) {
     var list = readWeb(); if (!list.length) return 0;
-    var known = {}; cands().forEach(function (c) { if (c.webId) known[c.webId] = 1; });
+    var known = {}, allOff = E.store.raw('offres'); E.store.raw('candidatures').forEach(function (c) { if (c.webId) known[c.webId] = 1; });
     var n = 0;
     list.forEach(function (w, idx) {
       if (!w || typeof w !== 'object') return;
@@ -242,9 +263,9 @@
       var nom = [w.prenom || w.firstName || '', w.nom || w.lastName || ''].join(' ').replace(/\s+/g, ' ').trim() || w.name || w.fullname || 'Candidat du site';
       var ofId = w.spontanee === true ? '' : (w.offreId || w.offre || w.offre_id || '');
       var poste = w.poste || w.offreTitre || w.titre || '';
-      if (!ofId && poste) { var f = offres().find(function (o) { return o.id === poste || E.norm(o.titre) === E.norm(poste); }); if (f) ofId = f.id; }
-      if (ofId && !offre(ofId)) { var f2 = offres().find(function (o) { return E.norm(o.titre) === E.norm(poste); }); ofId = f2 ? f2.id : ''; }
-      if (/spontan/i.test(ofId + ' ' + (w.type || '')) && !offre(ofId)) ofId = '';
+      if (!ofId && poste) { var f = allOff.find(function (o) { return o.id === poste || E.norm(o.titre) === E.norm(poste); }); if (f) ofId = f.id; }
+      if (ofId && !offreAny(ofId)) { var f2 = allOff.find(function (o) { return E.norm(o.titre) === E.norm(poste); }); ofId = f2 ? f2.id : ''; }
+      if (/spontan/i.test(ofId + ' ' + (w.type || '')) && !offreAny(ofId)) ofId = '';
       var cv = w.cv || w.cvNom || w.fichier || ''; if (cv && typeof cv === 'object') cv = cv.name || cv.nom || 'CV.pdf';
       var d = String(w.date || new Date().toISOString());
       var c = {
@@ -254,8 +275,9 @@
         cv: cv || '', message: w.message || w.motivation || '', lu: false, evaluations: [], entretiens: [], note: 0,
         historique: [{ date: d.length > 10 ? d : d + 'T08:00:00', par: 'Site carrières', action: 'Candidature reçue via le site internet (' + wid + ')' }]
       };
+      c.site = siteOfCand(c, w); c.siteFixe = true;
       E.store.add('candidatures', c); known[wid] = 1; n++;
-      E.notify('Nouvelle candidature reçue', nom + ' — ' + (ofId ? offre(ofId).titre : 'candidature spontanée' + (c.domaine ? ' (' + c.domaine + ')' : '')) + ' · via le site internet', '#/recrutement/candidat/' + c.id, 'violet');
+      E.notify('Nouvelle candidature reçue', nom + ' — ' + (ofId ? offreAny(ofId).titre : 'candidature spontanée' + (c.domaine ? ' (' + c.domaine + ')' : '')) + ' · via le site internet', '#/recrutement/candidat/' + c.id, 'violet');
       E.log('Import candidature site', nom + ' · ' + c.id, 'recrutement');
       if (!silent) ui.toast('Nouvelle candidature reçue du site : ' + nom);
     });
@@ -267,7 +289,7 @@
     cands().forEach(function (c) {
       if (c.statut !== 'Embauché' || !c.employeId || E.store.get('employes', c.employeId)) return;
       var p = c.proposition || {};
-      E.store.all('employes').push({ id: c.employeId, nom: c.nom, poste: p.poste || offTitle(c), direction: p.direction || 'TER', categorie: p.categorie || 'Employé', salaire: p.salaire || 700000, entree: p.dateEntree || today(), site: 'OWE', statut: 'Période d\'essai', contrat: 'CDI', tel: c.tel, email: mailOf(c.nom), origine: c.id });
+      E.store.all('employes').push({ id: c.employeId, nom: c.nom, poste: p.poste || offTitle(c), direction: p.direction || 'TER', categorie: p.categorie || 'Employé', salaire: p.salaire || 700000, entree: p.dateEntree || today(), site: siteOfCand(c), statut: 'Période d\'essai', contrat: 'CDI', tel: c.tel, email: mailOf(c.nom), origine: c.id });
     });
     E.store.save();
   }
@@ -295,7 +317,7 @@
 
   function validerEmbauche(c, done) {
     if (!isDG()) { ui.toast('La validation de l\'embauche est réservée à la Direction générale.', 'err'); return; }
-    var o = offre(c.offreId) || {};
+    var o = offreAny(c.offreId) || {};
     ui.formModal({
       title: 'Valider l\'embauche', sub: esc(c.nom) + ' · ' + esc(offTitle(c)), okLabel: 'Valider l\'embauche',
       intro: '<div class="alert tone-violet" style="margin-bottom:14px">' + icon('shield') + '<div><b>Décision de la Direction générale.</b> Les conditions ci-dessous alimentent la lettre de proposition et la future fiche employé.</div></div>',
@@ -322,9 +344,9 @@
 
   function embaucher(c, done) {
     var p = c.proposition || {};
-    ui.confirm('Confirmer l\'embauche', 'Le candidat <b>' + esc(c.nom) + '</b> a accepté la proposition. Sa fiche employé va être créée dans le module Personnel (statut « Période d\'essai », entrée le ' + fmt.date(p.dateEntree || today()) + ').', 'Confirmer l\'embauche', function () {
-      var o = offre(c.offreId) || {};
-      var emp = { id: nextMat(), nom: c.nom, poste: p.poste || o.titre || 'À définir', direction: p.direction || dirCode(o.direction) || 'RH', categorie: p.categorie || 'Employé', salaire: +p.salaire || 0, entree: p.dateEntree || today(), site: /Port-Gentil/.test(o.lieu || '') ? 'POG' : 'OWE', statut: 'Période d\'essai', contrat: (o.contrat || 'CDI').replace(/^Stage.*/, 'Stage'), tel: c.tel, email: mailOf(c.nom), origine: c.id };
+    ui.confirm('Confirmer l\'embauche', 'Le candidat <b>' + esc(c.nom) + '</b> a accepté la proposition. Sa fiche employé va être créée dans le module Personnel (statut « Période d\'essai », entrée le ' + fmt.date(p.dateEntree || today()) + ', ' + esc(E.siteName(E.scope() || siteOfCand(c))) + ').', 'Confirmer l\'embauche', function () {
+      var o = offreAny(c.offreId) || {};
+      var emp = { id: nextMat(), nom: c.nom, poste: p.poste || o.titre || 'À définir', direction: p.direction || dirCode(o.direction) || 'RH', categorie: p.categorie || 'Employé', salaire: +p.salaire || 0, entree: p.dateEntree || today(), site: E.scope() || siteOfCand(c), statut: 'Période d\'essai', contrat: (o.contrat || 'CDI').replace(/^Stage.*/, 'Stage'), tel: c.tel, email: mailOf(c.nom), origine: c.id };
       E.store.add('employes', emp);
       c.etape = 6; c.etapeMax = 6; c.statut = 'Embauché'; c.dateEmbauche = today(); c.employeId = emp.id;
       save(c, 'Embauche confirmée — fiche employé ' + emp.id + ' créée');
@@ -352,7 +374,7 @@
   function reactiver(c) { c.statut = 'En cours'; delete c.rejet; save(c, 'Candidature réactivée'); ui.toast('Candidature réactivée'); E.rerender(); }
 
   function planifier(c) {
-    var o = offre(c.offreId), tech = o && o.demandeur ? E.empName(o.demandeur) : 'Responsable technique';
+    var o = offreAny(c.offreId), tech = o && o.demandeur ? E.empName(o.demandeur) : 'Responsable technique', R0 = rh(c.site);
     var type = c.etape >= 3 ? 'Entretien technique / tests' : 'Entretien RH';
     ui.formModal({
       title: 'Planifier un entretien', sub: esc(c.nom) + ' · ' + esc(offTitle(c)), okLabel: 'Planifier et convoquer',
@@ -360,8 +382,8 @@
         { name: 'type', label: 'Type', type: 'select', options: ['Entretien RH', 'Entretien technique / tests', 'Test écrit', 'Visite médicale d\'embauche'], value: type },
         { name: 'date', label: 'Date', type: 'date', required: true, value: E.addDays(today(), 3) },
         { name: 'heure', label: 'Heure', type: 'time', required: true, value: '10:00' },
-        { name: 'lieu', label: 'Lieu', type: 'select', options: ['Salle de réunion RH — siège Owendo', 'Bureau d\'exploitation — quai', 'Simulateur de grue (test pratique)', 'Agence de Port-Gentil', 'Visioconférence', 'Centre médical du port'] },
-        { name: 'jury', label: 'Jury', full: true, required: true, value: type === 'Entretien RH' ? DRH + ', ' + CHARGE : tech + ', ' + CHARGE }
+        { name: 'lieu', label: 'Lieu', type: 'select', options: R0.lieux },
+        { name: 'jury', label: 'Jury', full: true, required: true, value: type === 'Entretien RH' ? (R0.drh === R0.charge ? R0.drh : R0.drh + ', ' + R0.charge) : tech + ', ' + R0.charge }
       ],
       onSubmit: function (v) {
         c.entretiens = c.entretiens || []; c.entretiens.push({ type: v.type, date: v.date, heure: v.heure, lieu: v.lieu, jury: v.jury });
@@ -392,17 +414,17 @@
 
   /* Lettre de proposition */
   function lettreHTML(c) {
-    var p = c.proposition || {}, o = offre(c.offreId) || {};
+    var p = c.proposition || {}, o = offreAny(c.offreId) || {}, R0 = rh(c.site);
     var civ = /(Aïcha|Prisca|Chancelle|Grâce|Ornella|Yolande|Brenda|Joëlle|Merveille|Christelle|Nadia|Emmanuella|Rolande|Laetitia|Sidonie|Pélagie|Esther|Inès)$/.test(c.nom) ? 'Madame' : 'Monsieur';
-    return '<div class="doc rh-doc"><div class="doc__head"><div class="row" style="gap:14px"><img src="../assets/img/logo.png" alt="GPM"><div class="co"><b>Gabon Port Management</b><span>Opérateur des ports d\'Owendo et de Port-Gentil</span><span>Zone portuaire d\'Owendo — B.P. 394 Libreville, Gabon</span></div></div><div style="text-align:right"><span class="small muted">Réf. DRH/REC/' + esc(c.id.replace('CAND-', '')) + '</span><br><b>Owendo, le ' + fmt.date(p.envoyee || today()) + '</b></div></div>' +
+    return '<div class="doc rh-doc"><div class="doc__head"><div class="row" style="gap:14px"><img src="../assets/img/logo.png" alt="GPM"><div class="co"><b>Gabon Port Management</b><span>Opérateur des ports d\'Owendo et de Port-Gentil</span><span>' + esc(R0.adr) + '</span></div></div><div style="text-align:right"><span class="small muted">Réf. DRH/REC/' + esc(c.id.replace('CAND-', '')) + '</span><br><b>' + esc(R0.ville) + ', le ' + fmt.date(p.envoyee || today()) + '</b></div></div>' +
       '<p style="margin-left:auto;width:max-content;max-width:100%"><b>' + civ + ' ' + esc(c.nom) + '</b><br>' + esc(c.ville || '') + '<br>' + esc(c.email || '') + '</p>' +
       '<p><b>Objet : proposition d\'embauche — ' + esc(p.poste || o.titre || '') + '</b></p>' +
       '<p>' + civ + ',</p><p>À l\'issue du processus de sélection, nous avons le plaisir de vous proposer de rejoindre Gabon Port Management (GPM) aux conditions suivantes :</p>' +
-      '<table><tbody>' + [['Poste', p.poste || o.titre], ['Direction', E.dirName(p.direction) || o.direction], ['Catégorie', p.categorie], ['Type de contrat', o.contrat || 'CDI'], ['Lieu de travail', o.lieu || 'Owendo (Libreville)'], ['Date de prise de poste', fmt.date(p.dateEntree)], ['Période d\'essai', p.essai || '3 mois'], ['Salaire de base mensuel (avant retenues)', fmt.money(p.salaire)], ['Avantages', 'Prime de transport, indemnité de logement selon catégorie, couverture CNAMGS, restauration d\'entreprise' + (['EXP', 'MAR', 'TER'].indexOf(dirCode(o.direction) || p.direction) >= 0 ? ', prime de quart et majoration des heures de nuit' : '')]].map(function (r) { return '<tr><td style="width:40%;color:#555">' + esc(r[0]) + '</td><td><b>' + esc(r[1] || '—') + '</b></td></tr>'; }).join('') + '</tbody></table>' +
+      '<table><tbody>' + [['Poste', p.poste || o.titre], ['Direction', E.dirName(p.direction) || o.direction], ['Catégorie', p.categorie], ['Type de contrat', o.contrat || 'CDI'], ['Lieu de travail', c.site === 'POG' ? 'Port-Gentil' : (o.lieu && !both(o.lieu) ? o.lieu : 'Owendo (Libreville)')], ['Date de prise de poste', fmt.date(p.dateEntree)], ['Période d\'essai', p.essai || '3 mois'], ['Salaire de base mensuel (avant retenues)', fmt.money(p.salaire)], ['Avantages', 'Prime de transport, indemnité de logement selon catégorie, couverture CNAMGS, restauration d\'entreprise' + (['EXP', 'MAR', 'TER'].indexOf(dirCode(o.direction) || p.direction) >= 0 ? ', prime de quart et majoration des heures de nuit' : '')]].map(function (r) { return '<tr><td style="width:40%;color:#555">' + esc(r[0]) + '</td><td><b>' + esc(r[1] || '—') + '</b></td></tr>'; }).join('') + '</tbody></table>' +
       '<p style="margin-top:12px">Cette proposition est valable quinze (15) jours à compter de sa date d\'émission. Votre embauche définitive est subordonnée à la visite médicale d\'aptitude et à la fourniture des pièces administratives (pièce d\'identité, diplômes, casier judiciaire, attestation CNSS).</p>' +
       '<p>Nous vous prions de nous retourner un exemplaire de ce courrier revêtu de la mention « Bon pour accord ». Nous nous réjouissons de vous accueillir prochainement au sein de nos équipes.</p><p>Veuillez agréer, ' + civ + ', l\'expression de nos salutations distinguées.</p>' +
-      '<div class="sign"><div>La Responsable des ressources humaines<br><b>' + DRH + '</b></div><div>Le candidat — « Bon pour accord »<br><b>' + esc(c.nom) + '</b></div></div>' +
-      '<div class="foot">Gabon Port Management · Owendo — Document généré par l\'espace de gestion (démonstration)</div></div>';
+      '<div class="sign"><div>' + esc(R0.titre) + '<br><b>' + esc(R0.drh) + '</b></div><div>Le candidat — « Bon pour accord »<br><b>' + esc(c.nom) + '</b></div></div>' +
+      '<div class="foot">Gabon Port Management · ' + esc(R0.ville) + ' — Document généré par l\'espace de gestion (démonstration)</div></div>';
   }
   function lettre(c) {
     if (!c.proposition) { ui.toast('La proposition doit d\'abord être validée par la Direction générale.', 'err'); return; }
@@ -426,13 +448,14 @@
       fields: [
         { name: 'nom', label: 'Nom et prénom', required: true }, { name: 'offreId', label: 'Offre', type: 'select', options: opts, value: preOffre || '' },
         { name: 'email', label: 'Courriel', type: 'email' }, { name: 'tel', label: 'Téléphone', placeholder: '+241 …' },
-        { name: 'ville', label: 'Ville', value: 'Libreville' }, { name: 'source', label: 'Source', type: 'select', options: SOURCES, value: 'Candidature papier' },
+        { name: 'ville', label: 'Ville', value: E.scope() === 'POG' ? 'Port-Gentil' : 'Libreville' }, { name: 'source', label: 'Source', type: 'select', options: SOURCES, value: 'Candidature papier' },
         { name: 'diplome', label: 'Diplôme', required: true }, { name: 'experience', label: 'Années d\'expérience', type: 'number', min: 0, value: 0 },
         { name: 'domaine', label: 'Domaine (si spontanée)', type: 'select', options: DOMAINES, empty: '—' }, { name: 'cv', label: 'Fichier CV', placeholder: 'CV_NOM_Prenom.pdf' },
         { name: 'message', label: 'Observations', type: 'textarea' }
       ],
       onSubmit: function (v) {
-        var c = { id: nextCandId(), nom: v.nom, email: v.email, tel: v.tel, ville: v.ville, diplome: v.diplome, experience: v.experience, offreId: v.offreId || null, domaine: v.offreId ? '' : (v.domaine || 'Autre'), source: v.source, date: today(), dateMaj: today(), etape: 0, etapeMax: 0, statut: 'En cours', cv: v.cv || ('CV_' + E.norm(v.nom).replace(/[^a-z]+/g, '_').toUpperCase() + '.pdf'), message: v.message, lu: true, evaluations: [], entretiens: [], note: 0, historique: [] };
+        var c = { id: nextCandId(), site: '', nom: v.nom, email: v.email, tel: v.tel, ville: v.ville, diplome: v.diplome, experience: v.experience, offreId: v.offreId || null, domaine: v.offreId ? '' : (v.domaine || 'Autre'), source: v.source, date: today(), dateMaj: today(), etape: 0, etapeMax: 0, statut: 'En cours', cv: v.cv || ('CV_' + E.norm(v.nom).replace(/[^a-z]+/g, '_').toUpperCase() + '.pdf'), message: v.message, lu: true, evaluations: [], entretiens: [], note: 0, historique: [] };
+        c.site = E.scope() || siteOfCand(c); c.siteFixe = true;
         hist(c, 'Candidature saisie (' + v.source + ')'); E.store.add('candidatures', c); E.log('Candidature saisie', c.nom, 'recrutement');
         ui.toast('Candidature de ' + c.nom + ' enregistrée'); setTimeout(function () { E.go('recrutement/candidat/' + c.id); });
       }
@@ -445,7 +468,7 @@
     return [
       { name: 'titre', label: 'Intitulé du poste', required: true, full: true, value: o.titre },
       { name: 'direction', label: 'Direction', type: 'select', options: E.store.all('directions').map(function (d) { return d.nom; }), value: o.direction || 'Exploitation portuaire' },
-      { name: 'lieu', label: 'Lieu', type: 'select', options: ['Owendo (Libreville)', 'Port-Gentil', 'Owendo et Port-Gentil'], value: o.lieu || 'Owendo (Libreville)' },
+      { name: 'lieu', label: 'Lieu', type: 'select', options: lieuOpts(o.lieu), value: o.lieu || lieuOpts()[0] },
       { name: 'contrat', label: 'Contrat', type: 'select', options: CONTRATS, value: o.contrat || 'CDI' },
       { name: 'niveau', label: 'Niveau / expérience', value: o.niveau, placeholder: 'Bac+5 · 5 ans' },
       { name: 'categorie', label: 'Catégorie', type: 'select', options: CATEGORIES.concat(['Stagiaire']), value: o.categorie || 'Agent de maîtrise' },
@@ -457,11 +480,13 @@
       { name: 'profil', label: 'Profil recherché (un point par ligne)', type: 'textarea', value: (o.profil || []).join('\n') }
     ];
   }
+  function lieuOpts(cur) { var sc = E.scope(), l = sc === 'POG' ? ['Port-Gentil'] : sc === 'OWE' ? ['Owendo (Libreville)'] : ['Owendo (Libreville)', 'Port-Gentil', 'Owendo et Port-Gentil']; if (cur && l.indexOf(cur) < 0 && !sc) l.push(cur); return l; }
   function lines(s) { return String(s || '').split(/\n+/).map(function (x) { return x.trim(); }).filter(Boolean); }
   function nouvelleOffre() {
     ui.formModal({ title: 'Nouvelle offre d\'emploi', sub: 'Créée en brouillon, puis soumise au circuit DRH → Direction générale avant publication', size: 'lg', fields: offreFields(), okLabel: 'Créer le brouillon',
       onSubmit: function (v) {
-        var o = { id: nextOffreId(), titre: v.titre, direction: v.direction, lieu: v.lieu, contrat: v.contrat, niveau: v.niveau, categorie: v.categorie, postes: +v.postes || 1, cloture: v.cloture, budget: +v.budget || 0, resume: v.resume, missions: lines(v.missions), profil: lines(v.profil), publie: '', statut: 'brouillon', demandeur: (empByName('Mbina') || {}).id, justification: '', dateDemande: today(), historique: [] };
+        var o = { id: nextOffreId(), titre: v.titre, direction: v.direction, lieu: v.lieu, contrat: v.contrat, niveau: v.niveau, categorie: v.categorie, postes: +v.postes || 1, cloture: v.cloture, budget: +v.budget || 0, resume: v.resume, missions: lines(v.missions), profil: lines(v.profil), publie: '', statut: 'brouillon', demandeur: (empByName(E.scope() === 'POG' ? 'Bivigou' : 'Mbina') || {}).id, justification: '', dateDemande: today(), historique: [] };
+        o.site = E.scope() || siteOfOffre(o);
         hist(o, 'Brouillon d\'offre créé'); E.store.add('offres', o); E.log('Offre créée', o.id + ' · ' + o.titre, 'recrutement');
         ui.toast('Brouillon ' + o.id + ' créé'); setTimeout(function () { E.go('recrutement/offre/' + o.id); });
       } });
@@ -470,9 +495,9 @@
     ui.formModal({ title: 'Demande de recrutement', sub: 'Besoin exprimé par un manager — validation DRH puis Direction générale', okLabel: 'Soumettre la demande',
       fields: [
         { name: 'titre', label: 'Poste à pourvoir', required: true, full: true },
-        { name: 'demandeur', label: 'Manager demandeur', type: 'select', options: E.options('employes', function (e) { return e.nom + ' — ' + e.poste; }), value: (empByName('Mbadinga') || {}).id },
+        { name: 'demandeur', label: 'Manager demandeur', type: 'select', options: E.options('employes', function (e) { return e.nom + ' — ' + e.poste; }), value: (empByName(E.scope() === 'POG' ? 'Bivigou' : 'Mbadinga') || {}).id },
         { name: 'direction', label: 'Direction', type: 'select', options: E.store.all('directions').map(function (d) { return d.nom; }), value: 'Service technique' },
-        { name: 'lieu', label: 'Site', type: 'select', options: ['Owendo (Libreville)', 'Port-Gentil'] },
+        { name: 'lieu', label: 'Site', type: 'select', options: lieuOpts().filter(function (l) { return !both(l); }) },
         { name: 'motif', label: 'Nature du besoin', type: 'select', options: ['Création de poste', 'Remplacement (départ)', 'Remplacement (retraite)', 'Renfort temporaire', 'Hausse du trafic', 'Projet d\'investissement'] },
         { name: 'contrat', label: 'Contrat', type: 'select', options: CONTRATS },
         { name: 'postes', label: 'Nombre de postes', type: 'number', min: 1, value: 1 },
@@ -484,6 +509,7 @@
       onSubmit: function (v) {
         var d = E.emp(v.demandeur);
         var o = { id: nextOffreId(), titre: v.titre, direction: v.direction, lieu: v.lieu || 'Owendo (Libreville)', contrat: v.contrat, niveau: '', categorie: v.categorie, postes: +v.postes || 1, cloture: '', budget: +v.budget || 0, resume: '', missions: [], profil: [], publie: '', statut: 'demande', demandeur: v.demandeur, justification: v.motif + ' — ' + v.justification, arrivee: v.arrivee, dateDemande: today(), historique: [] };
+        o.site = E.scope() || siteOfOffre(o);
         o.historique.unshift({ date: new Date().toISOString(), par: d ? d.nom : me(), action: 'Demande de recrutement créée (' + v.motif + ')' });
         E.store.add('offres', o); E.log('Demande de recrutement', o.id + ' · ' + o.titre, 'recrutement');
         E.notify('Demande de recrutement à valider', o.titre + ' — ' + (d ? d.nom : ''), '#/recrutement/offre/' + o.id, 'orange');
@@ -517,6 +543,7 @@
   }
   function modifierOffre(o) {
     ui.formModal({ title: 'Modifier l\'offre', sub: o.id, size: 'lg', fields: offreFields(o), onSubmit: function (v) {
+      if (!E.scope() && v.lieu !== o.lieu) o.site = siteOfOffre({ lieu: v.lieu });
       Object.assign(o, { titre: v.titre, direction: v.direction, lieu: v.lieu, contrat: v.contrat, niveau: v.niveau, categorie: v.categorie, postes: +v.postes || 1, cloture: v.cloture, budget: +v.budget || 0, resume: v.resume, missions: lines(v.missions), profil: lines(v.profil) });
       hist(o, 'Offre modifiée'); E.store.save(); ui.toast('Offre mise à jour' + (o.statut === 'publiee' ? ' (également sur le site)' : '')); setTimeout(E.rerender);
     } });
@@ -525,7 +552,7 @@
   /* ------------------------------------------------------------ vues */
   function header(view, active) {
     var enCours = cands().filter(function (c) { return c.statut === 'En cours'; });
-    var html = '<div class="rh-head"><div><h2>Recrutement & stages</h2><p>De la demande du manager à l\'arrivée du nouveau collaborateur — et accueil des jeunes du programme d\'employabilité</p></div><div class="rh-actions">' +
+    var html = '<div class="rh-head"><div><h2>Recrutement & stages' + (E.scope() ? ' · ' + esc(E.space().court) : '') + '</h2><p>De la demande du manager à l\'arrivée du nouveau collaborateur — et accueil des jeunes du programme d\'employabilité</p></div><div class="rh-actions">' +
       (isRH() ? '<button class="btn" data-a="demande">' + icon('flag') + 'Demande de recrutement</button><button class="btn" data-a="offre">' + icon('plus') + 'Nouvelle offre</button><button class="btn primary" data-a="cand">' + icon('userplus') + 'Saisir une candidature</button>' : '') + '</div></div>' +
       ui.tabs([
         { k: 'tableau', l: 'Tableau de bord' }, { k: 'pipeline', l: 'Pipeline', n: enCours.length }, { k: 'candidatures', l: 'Candidatures', n: cands().length },
@@ -619,11 +646,12 @@
       { label: 'Candidat', render: function (c) { return '<div class="row" style="gap:9px;flex-wrap:nowrap">' + ui.avatar(c.nom, null, true) + '<div><b>' + esc(c.nom) + '</b> ' + (!c.lu ? '<span class="rh-new">Nouveau</span>' : '') + '<div class="small muted">' + esc(c.diplome || '') + '</div></div></div>'; }, csv: function (c) { return c.nom; } },
       { label: 'Offre', render: function (c) { return esc(offTitle(c)) + (!c.offreId && c.domaine ? '<div class="small muted">' + esc(c.domaine) + '</div>' : ''); }, csv: offTitle },
       { label: 'Étape', render: etapeBadge, csv: function (c) { return c.statut === 'En cours' ? ETAPES[c.etape] : c.statut; } },
-      { label: 'Source', key: 'source' },
+      { label: 'Source', key: 'source' }
+    ].concat(E.scope() ? [] : [{ label: 'Site', render: function (c) { return c.site === 'POG' ? 'Port-Gentil' : 'Owendo'; }, csv: function (c) { return c.site; } }]).concat([
       { label: 'Reçue le', render: function (c) { return fmt.date(c.date); }, csv: function (c) { return c.date; } },
       { label: 'Exp.', num: true, render: function (c) { return c.experience !== '' && c.experience != null ? c.experience + ' an(s)' : '—'; }, csv: function (c) { return c.experience; } },
       { label: 'Note', render: function (c) { return c.note ? stars(c.note) : '<span class="muted small">—</span>'; }, csv: function (c) { return c.note || ''; } }
-    ];
+    ]);
   }
   function renderListe(body) {
     var sel = function (id, cur, opts, empty) { return '<select class="select" id="' + id + '"><option value="">' + empty + '</option>' + opts.map(function (o) { var v = typeof o === 'object' ? o.v : o, l = typeof o === 'object' ? o.l : o; return '<option value="' + esc(v) + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join('') + '</select>'; };
@@ -662,7 +690,7 @@
       else if (o.statut === 'approuvee' && isRH()) quick = '<button class="btn sm accent" data-oa="publier" data-id="' + o.id + '">' + icon('globe') + 'Publier sur le site</button>';
       else if (o.statut === 'publiee' && isRH()) quick = '<button class="btn sm" data-oa="retirer" data-id="' + o.id + '">Retirer du site</button>';
       else if (o.statut === 'brouillon' && isRH()) quick = '<button class="btn sm" data-oa="soumettre" data-id="' + o.id + '">' + icon('send') + 'Soumettre</button>';
-      return '<div class="card rh-offer" data-go="' + o.id + '"><div class="rh-offer__b"><div class="row" style="justify-content:space-between"><span class="mono muted">' + esc(o.id) + '</span>' + ofBadge(o) + '</div><h3>' + esc(o.titre) + '</h3><div class="rh-offer__meta"><span>' + esc(o.direction) + '</span><span>' + esc(o.contrat) + '</span><span>' + (o.postes || 1) + ' poste(s)</span>' + (o.budget ? '<span>' + fmt.short(o.budget) + ' FCFA/an</span>' : '') + '</div>' +
+      return '<div class="card rh-offer" data-go="' + o.id + '"><div class="rh-offer__b"><div class="row" style="justify-content:space-between"><span class="mono muted">' + esc(o.id) + '</span>' + ofBadge(o) + '</div><h3>' + esc(o.titre) + '</h3><div class="rh-offer__meta">' + (E.scope() ? '' : '<span>' + (o.site === 'POG' ? 'Port-Gentil' : 'Owendo') + '</span>') + '<span>' + esc(o.direction) + '</span><span>' + esc(o.contrat) + '</span><span>' + (o.postes || 1) + ' poste(s)</span>' + (o.budget ? '<span>' + fmt.short(o.budget) + ' FCFA/an</span>' : '') + '</div>' +
         '<div class="small muted">' + esc(o.resume || o.justification || '').slice(0, 140) + ((o.resume || o.justification || '').length > 140 ? '…' : '') + '</div><div class="rh-mini" title="Circuit : ' + OF_WF.join(' → ') + '">' + mini + '</div></div>' +
         '<div class="rh-offer__f"><span>' + icon('users', '').replace('<svg', '<svg style="width:14px;vertical-align:-2px"') + ' ' + cs.length + ' candidature(s)</span>' + (o.statut === 'publiee' ? '<span>clôture ' + fmt.dateShort(o.cloture) + '</span>' : '') + '<span class="spacer"></span>' + quick + '</div></div>';
     }).join('');
@@ -695,7 +723,7 @@
   function rattacher(c) {
     var pub = offres().filter(function (o) { return o.statut === 'publiee'; });
     ui.formModal({ title: 'Rattacher à une offre', sub: esc(c.nom), okLabel: 'Rattacher', fields: [{ name: 'offreId', label: 'Offre ouverte', type: 'select', options: pub.map(function (o) { return { v: o.id, l: o.titre }; }), required: true }], onSubmit: function (v) {
-      c.offreId = v.offreId; save(c, 'Rattachée à l\'offre ' + v.offreId + ' — ' + offre(v.offreId).titre); ui.toast(c.nom + ' rattaché(e) à « ' + offre(v.offreId).titre + ' »'); setTimeout(E.rerender);
+      c.offreId = v.offreId; if (!E.scope()) c.site = siteOfCand(c); save(c, 'Rattachée à l\'offre ' + v.offreId + ' — ' + offre(v.offreId).titre); ui.toast(c.nom + ' rattaché(e) à « ' + offre(v.offreId).titre + ' »'); setTimeout(E.rerender);
     } });
   }
 
@@ -707,20 +735,20 @@
       { name: 'nom', label: 'Nom et prénom du stagiaire', required: true, value: s.nom },
       { name: 'ecole', label: 'École / diplôme préparé', required: true, value: s.ecole },
       { name: 'service', label: 'Service d\'accueil', type: 'select', options: SERVICES_STAGE, value: s.service || SERVICES_STAGE[0] },
-      { name: 'site', label: 'Site', type: 'select', options: E.options('sites'), value: s.site || 'OWE' },
-      { name: 'tuteur', label: 'Tuteur', type: 'select', options: E.options('employes', function (e) { return e.nom + ' — ' + e.poste; }), value: s.tuteur || (empByName('Allogho') || {}).id },
+    ].concat(E.scope() ? [] : [{ name: 'site', label: 'Site', type: 'select', options: E.options('sites'), value: s.site || 'OWE' }]).concat([
+      { name: 'tuteur', label: 'Tuteur', type: 'select', options: E.options('employes', function (e) { return e.nom + ' — ' + e.poste; }), value: s.tuteur || (empByName(E.scope() === 'POG' ? 'Bivigou' : 'Allogho') || {}).id },
       { name: 'gratification', label: 'Gratification mensuelle (FCFA)', type: 'money', value: s.gratification != null ? s.gratification : 100000 },
       { name: 'debut', label: 'Début du stage', type: 'date', required: true, value: s.debut || E.addDays(today(), 14) },
       { name: 'fin', label: 'Fin du stage', type: 'date', required: true, value: s.fin || E.addDays(today(), 104) },
       { name: 'theme', label: 'Thème / mission du stage', type: 'textarea', required: true, value: s.theme }
-    ];
+    ]);
   }
   function nouveauStagiaire(pre) {
     ui.formModal({ title: 'Accueillir un stagiaire', sub: 'Programme d\'employabilité des jeunes — convention de stage', size: 'lg', fields: stageFields(pre), values: pre, okLabel: 'Enregistrer la convention',
       onSubmit: function (v) {
         if (v.fin <= v.debut) { ui.toast('La fin du stage doit suivre son début.', 'err'); return false; }
-        var n = stagiaires().reduce(function (m, s) { var k = +String(s.id).split('-')[2] || 0; return Math.max(m, k); }, 0) + 1;
-        var s = { id: 'STG-2026-' + String(n).padStart(3, '0'), nom: v.nom, ecole: v.ecole, service: v.service, site: v.site, tuteur: v.tuteur, debut: v.debut, fin: v.fin, theme: v.theme, gratification: +v.gratification || 0, statut: 'Actif', programme: 'Programme d\'employabilité des jeunes', presence: 100, rapport: false, origine: pre && pre.origine || '', historique: [] };
+        var n = E.store.raw('stagiaires').reduce(function (m, s) { var k = +String(s.id).split('-')[2] || 0; return Math.max(m, k); }, 0) + 1;
+        var s = { id: 'STG-2026-' + String(n).padStart(3, '0'), nom: v.nom, ecole: v.ecole, service: v.service, site: E.scope() || v.site || (pre && pre.site) || 'OWE', tuteur: v.tuteur, debut: v.debut, fin: v.fin, theme: v.theme, gratification: +v.gratification || 0, statut: 'Actif', programme: 'Programme d\'employabilité des jeunes', presence: 100, rapport: false, origine: pre && pre.origine || '', historique: [] };
         hist(s, 'Convention de stage enregistrée'); E.store.add('stagiaires', s); E.log('Stagiaire accueilli', s.nom + ' · ' + s.service, 'recrutement');
         E.notify('Nouveau stagiaire : ' + s.nom, s.service + ' · tuteur ' + E.empName(s.tuteur), '#/recrutement/stages', 'green');
         if (pre && pre.origine) { var c = cand(pre.origine); if (c) { c.statut = 'Embauché'; c.etape = 6; c.etapeMax = 6; c.dateEmbauche = today(); c.stagiaireId = s.id; save(c, 'Accueilli(e) en stage — ' + s.id); } }
@@ -740,15 +768,15 @@
       } });
   }
   function attestationHTML(s) {
-    var tut = E.emp(s.tuteur);
-    return '<div class="doc rh-doc"><div class="doc__head"><div class="row" style="gap:14px"><img src="../assets/img/logo.png" alt="GPM"><div class="co"><b>Gabon Port Management</b><span>Zone portuaire d\'Owendo — B.P. 394 Libreville</span><span>Gabon</span></div></div><div style="text-align:right"><span class="small muted">Réf. DRH/STG/' + esc(s.id.replace('STG-', '')) + '</span><br><b>Owendo, le ' + fmt.date(today()) + '</b></div></div>' +
+    var tut = E.emp(s.tuteur), R0 = rh(s.site);
+    return '<div class="doc rh-doc"><div class="doc__head"><div class="row" style="gap:14px"><img src="../assets/img/logo.png" alt="GPM"><div class="co"><b>Gabon Port Management</b><span>' + esc(R0.adr) + '</span></div></div><div style="text-align:right"><span class="small muted">Réf. DRH/STG/' + esc(s.id.replace('STG-', '')) + '</span><br><b>' + esc(R0.ville) + ', le ' + fmt.date(today()) + '</b></div></div>' +
       '<h2 style="text-align:center;margin:26px 0 18px">ATTESTATION DE STAGE</h2>' +
       '<p>Nous soussignés, Gabon Port Management (GPM), attestons que <b>' + esc(s.nom) + '</b>, étudiant(e) en ' + esc(s.ecole) + ', a effectué un stage au sein de notre service <b>' + esc(s.service) + '</b> (' + esc(E.siteName(s.site)) + ') du <b>' + fmt.date(s.debut) + '</b> au <b>' + fmt.date(s.fin) + '</b>, dans le cadre du programme d\'employabilité des jeunes.</p>' +
       '<p>Mission confiée : ' + esc(s.theme || '—') + '.</p>' +
       (s.evaluation ? '<p>Appréciation du tuteur (' + esc(tut ? tut.nom : '') + ') : « ' + esc(s.evaluation.appreciation) + ' »</p>' : '') +
       '<p>La présente attestation est délivrée pour servir et valoir ce que de droit.</p>' +
-      '<div class="sign"><div>Le tuteur de stage<br><b>' + esc(tut ? tut.nom : '') + '</b></div><div>La Responsable des ressources humaines<br><b>' + DRH + '</b></div></div>' +
-      '<div class="foot">Gabon Port Management · Owendo — Document généré par l\'espace de gestion (démonstration)</div></div>';
+      '<div class="sign"><div>Le tuteur de stage<br><b>' + esc(tut ? tut.nom : '') + '</b></div><div>' + esc(R0.titre) + '<br><b>' + esc(R0.drh) + '</b></div></div>' +
+      '<div class="foot">Gabon Port Management · ' + esc(R0.ville) + ' — Document généré par l\'espace de gestion (démonstration)</div></div>';
   }
   function attestation(s) {
     ui.modal({ title: 'Attestation de stage', sub: esc(s.nom), size: 'lg', body: '<div class="rh-doc-wrap">' + attestationHTML(s) + '</div>',
@@ -777,8 +805,9 @@
     var cout = E.sum(actifs, 'gratification');
     var list = all.filter(function (s) { var st = stStatut(s); return (stF.vue === 'tous' || (stF.vue === 'actifs' ? (st === 'En cours' || st === 'À clôturer') : stF.vue === 'venir' ? st === 'À venir' : st === 'Terminé')) && (!stF.service || s.service === stF.service); })
       .sort(function (a, b) { return a.service.localeCompare(b.service) || a.nom.localeCompare(b.nom); });
-    var cand = cands().filter(function (c) { var o = offre(c.offreId); return o && /^Stage/.test(o.contrat || '') && c.statut === 'En cours'; });
-    var html = '<div class="rh-stage-hero card"><div class="card__b"><div class="rh-stage-hero__in"><div><span class="badge tone-yellow">Programme d\'employabilité des jeunes</span><h3>Former la relève des métiers portuaires</h3><p>Chaque promotion accueille une dizaine de jeunes diplômés dans les services HSE, grutiers, commercial, qualité et projets, accompagnés par un tuteur et évalués en fin de parcours.</p></div><div class="rh-actions">' + (isRH() ? '<button class="btn accent" id="st-new">' + icon('userplus') + 'Accueillir un stagiaire</button>' : '') + '<button class="btn" id="st-csv">' + icon('download') + 'Exporter</button></div></div></div></div>' +
+    var cand = cands().filter(function (c) { var o = offreAny(c.offreId); return o && /^Stage/.test(o.contrat || '') && c.statut === 'En cours'; });
+    var ofStage = offres().find(function (o) { return /^Stage/.test(o.contrat || '') && o.statut === 'publiee'; });
+    var html = '<div class="rh-stage-hero card"><div class="card__b"><div class="rh-stage-hero__in"><div><span class="badge tone-yellow">Programme d\'employabilité des jeunes</span><h3>Former la relève des métiers portuaires</h3><p>Chaque promotion accueille une dizaine de jeunes diplômés dans les services HSE, grutiers, commercial, qualité et projets' + (E.scope() ? ' — ici, les stagiaires accueillis au ' + esc(E.space().court) : ', au port d\'Owendo et à Port-Gentil') + ', accompagnés par un tuteur et évalués en fin de parcours.</p></div><div class="rh-actions">' + (isRH() ? '<button class="btn accent" id="st-new">' + icon('userplus') + 'Accueillir un stagiaire</button>' : '') + '<button class="btn" id="st-csv">' + icon('download') + 'Exporter</button></div></div></div></div>' +
       '<div class="grid g4 rh-kpis">' +
       ui.kpi({ label: 'Stagiaires en cours', value: actifs.length, icon: 'graduation', tone: 'violet', foot: all.filter(function (s) { return stStatut(s) === 'À venir'; }).length + ' arrivée(s) programmée(s)' }) +
       ui.kpi({ label: 'Services d\'accueil', value: SERVICES_STAGE.filter(function (sv) { return actifs.some(function (s) { return s.service === sv; }); }).length, unit: '/ ' + SERVICES_STAGE.length, icon: 'layers', tone: 'blue', foot: Object.keys(tuteurs).length + ' tuteur(s) mobilisé(s)' }) +
@@ -789,13 +818,13 @@
       '<div class="card__b" style="padding-bottom:6px"><div class="filters" style="margin:0"><div class="chips" id="st-vue">' + [['actifs', 'En cours'], ['venir', 'À venir'], ['termines', 'Terminés'], ['tous', 'Tous']].map(function (c) { return '<button class="chip' + (stF.vue === c[0] ? ' is-active' : '') + '" data-v="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div><select class="select" id="st-sv"><option value="">Tous les services</option>' + SERVICES_STAGE.map(function (s) { return '<option' + (stF.service === s ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('') + '</select></div></div>' +
       ui.table([
         { label: 'Stagiaire', render: function (s) { return '<div class="row" style="gap:9px;flex-wrap:nowrap">' + ui.avatar(s.nom, null, true) + '<div><b>' + esc(s.nom) + '</b><div class="small muted">' + esc(s.ecole) + '</div></div></div>'; } },
-        { label: 'Service', render: function (s) { return '<span class="rh-dot" style="background:' + SERV_COL[s.service] + '"></span>' + esc(s.service) + '<div class="small muted">' + esc(E.siteName(s.site)) + '</div>'; } },
+        { label: 'Service', render: function (s) { return '<span class="rh-dot" style="background:' + SERV_COL[s.service] + '"></span>' + esc(s.service) + (E.scope() ? '' : '<div class="small muted">' + esc(E.siteName(s.site)) + '</div>'); } },
         { label: 'Tuteur', render: function (s) { return esc(E.empName(s.tuteur)); } },
         { label: 'Période', render: function (s) { return '<span class="nowrap">' + fmt.dateShort(s.debut) + ' → ' + fmt.dateShort(s.fin) + '</span>'; } },
         { label: 'Statut', render: function (s) { return stBadge(s) + (s.evaluation ? ' <b class="small">' + s.evaluation.note + '/20</b>' : ''); } }
       ], list, { onRow: function (s) { ficheStagiaire(s); }, empty: 'Aucun stagiaire dans cette sélection' }) + '</div>' +
       '<div class="stack"><div class="card"><div class="card__h"><h3>Répartition par service</h3></div><div class="card__b">' + ui.donut(rep, { center: actifs.length, sub: 'en cours' }) + '</div></div>' +
-      '<div class="card"><div class="card__h"><h3>Candidatures de stage</h3><a class="btn ghost sm" style="margin-left:auto" href="#/recrutement/offre/OF-2026-025">Offre</a></div><div class="list">' + (cand.length ? cand.map(function (c) { return '<a class="list__item" href="#/recrutement/candidat/' + c.id + '" style="color:inherit">' + ui.avatar(c.nom, null, true) + '<div class="list__body"><b>' + esc(c.nom) + '</b><div class="small muted">' + esc(c.diplome) + '</div></div>' + etapeBadge(c) + '</a>'; }).join('') : '<div class="empty">Aucune candidature de stage en cours</div>') + '</div></div></div></div>';
+      '<div class="card"><div class="card__h"><h3>Candidatures de stage</h3>' + (ofStage ? '<a class="btn ghost sm" style="margin-left:auto" href="#/recrutement/offre/' + ofStage.id + '">Offre</a>' : '') + '</div><div class="list">' + (cand.length ? cand.map(function (c) { return '<a class="list__item" href="#/recrutement/candidat/' + c.id + '" style="color:inherit">' + ui.avatar(c.nom, null, true) + '<div class="list__body"><b>' + esc(c.nom) + '</b><div class="small muted">' + esc(c.diplome) + '</div></div>' + etapeBadge(c) + '</a>'; }).join('') : '<div class="empty">Aucune candidature de stage en cours</div>') + '</div></div></div></div>';
     body.innerHTML = html;
     var n = body.querySelector('#st-new'); if (n) n.onclick = function () { nouveauStagiaire(); };
     body.querySelector('#st-csv').onclick = function () { ui.exportCSV('stagiaires-gpm', [{ label: 'Réf.', key: 'id' }, { label: 'Stagiaire', key: 'nom' }, { label: 'École', key: 'ecole' }, { label: 'Service', key: 'service' }, { label: 'Site', key: 'site' }, { label: 'Tuteur', csv: function (s) { return E.empName(s.tuteur); } }, { label: 'Début', key: 'debut' }, { label: 'Fin', key: 'fin' }, { label: 'Statut', csv: stStatut }, { label: 'Note /20', csv: function (s) { return s.evaluation ? s.evaluation.note : ''; } }], list); };
@@ -808,7 +837,7 @@
     var c = cand(id);
     if (!c) { view.innerHTML = '<a class="rh-back" href="#/recrutement/candidatures">' + icon('back') + 'Candidatures</a><div class="card empty">Candidature introuvable.</div>'; return; }
     if (!c.lu) { c.lu = true; E.store.save(); E.renderBadges(); }
-    var o = offre(c.offreId), actif = c.statut === 'En cours', et = c.etape;
+    var o = offre(c.offreId), oa = offreAny(c.offreId), actif = c.statut === 'En cours', et = c.etape;
     var acts = [];
     if (actif && isRH()) {
       if (et === 0) acts.push('<button class="btn primary" data-x="next">' + icon('check') + 'Présélectionner</button>');
@@ -823,7 +852,7 @@
     if (!actif && c.statut !== 'Embauché' && isRH()) acts.push('<button class="btn" data-x="react">' + icon('refresh') + 'Réactiver</button>');
     if (c.statut === 'Embauché' && c.employeId) acts.push('<a class="btn primary" href="#/personnel/' + (c.employeId || '') + '">' + icon('users') + 'Voir la fiche employé ' + esc(c.employeId || '') + '</a>', '<button class="btn" data-x="lettre">' + icon('doc') + 'Lettre de proposition</button>');
     if (!c.offreId && actif && isRH()) acts.push('<button class="btn" data-x="link">' + icon('link') + 'Rattacher à une offre</button>');
-    if (o && /^Stage/.test(o.contrat || '') && actif && isRH()) acts.unshift('<button class="btn accent" data-x="stage">' + icon('graduation') + 'Accueillir en stage</button>');
+    if (oa && /^Stage/.test(oa.contrat || '') && actif && isRH()) acts.unshift('<button class="btn accent" data-x="stage">' + icon('graduation') + 'Accueillir en stage</button>');
     if (c.stagiaireId) acts.push('<a class="btn" href="#/recrutement/stages">' + icon('graduation') + 'Voir le stagiaire ' + esc(c.stagiaireId) + '</a>');
 
     var lock = actif && et === 4 ? (isDG() ? '<div class="alert tone-violet" style="margin-top:14px">' + icon('shield') + '<div><b>Votre validation est attendue.</b> Le dossier a été soumis par la DRH le ' + fmt.date(c.dateMaj) + '. Validez l\'embauche pour fixer les conditions de la proposition, ou rejetez la candidature.</div></div>'
@@ -840,7 +869,7 @@
     var prop = c.proposition ? '<div class="card"><div class="card__h"><h3>Conditions proposées</h3>' + (c.proposition.envoyee ? ui.badge('Envoyée le ' + fmt.dateShort(c.proposition.envoyee), 'green') : ui.badge('À envoyer', 'orange')) + '</div><div class="card__b"><dl class="kv"><dt>Poste</dt><dd>' + esc(c.proposition.poste) + '</dd><dt>Direction</dt><dd>' + esc(E.dirName(c.proposition.direction)) + '</dd><dt>Catégorie</dt><dd>' + esc(c.proposition.categorie) + '</dd><dt>Salaire de base</dt><dd><b>' + fmt.money(c.proposition.salaire) + '</b> / mois</dd><dt>Prise de poste</dt><dd>' + fmt.date(c.proposition.dateEntree) + '</dd><dt>Période d\'essai</dt><dd>' + esc(c.proposition.essai) + '</dd></dl></div></div>' : '';
 
     view.innerHTML = '<a class="rh-back" href="#/recrutement/' + (c.offreId ? 'pipeline' : 'vivier') + '">' + icon('back') + (c.offreId ? 'Pipeline' : 'Vivier') + '</a>' +
-      '<div class="card" style="margin-bottom:16px"><div class="card__b"><div class="rh-hero">' + ui.avatar(c.nom) + '<div style="min-width:0;flex:1"><h2>' + esc(c.nom) + '</h2><div class="rh-hero__meta"><span>' + icon('userplus') + (o ? '<a href="#/recrutement/offre/' + o.id + '">' + esc(o.titre) + '</a>' : esc(offTitle(c)) + (c.domaine ? ' · ' + esc(c.domaine) : '')) + '</span><span>' + icon('pin') + esc(c.ville || '—') + '</span><span>' + icon('globe') + esc(c.source) + '</span><span>' + icon('calendar') + 'Reçue le ' + fmt.date(c.date) + '</span><span class="mono">' + esc(c.id) + '</span></div></div>' +
+      '<div class="card" style="margin-bottom:16px"><div class="card__b"><div class="rh-hero">' + ui.avatar(c.nom) + '<div style="min-width:0;flex:1"><h2>' + esc(c.nom) + '</h2><div class="rh-hero__meta"><span>' + icon('userplus') + (o ? '<a href="#/recrutement/offre/' + o.id + '">' + esc(o.titre) + '</a>' : esc(offTitle(c)) + (c.domaine ? ' · ' + esc(c.domaine) : '')) + '</span>' + (E.scope() ? '' : '<span>' + icon('anchor') + esc(c.site === 'POG' ? 'Port-Gentil' : 'Owendo') + '</span>') + '<span>' + icon('pin') + esc(c.ville || '—') + '</span><span>' + icon('globe') + esc(c.source) + '</span><span>' + icon('calendar') + 'Reçue le ' + fmt.date(c.date) + '</span><span class="mono">' + esc(c.id) + '</span></div></div>' +
       '<div class="rh-hero__side">' + etapeBadge(c) + (c.note ? '<div class="row" style="gap:6px">' + stars(c.note, true) + '<b>' + fmt.num(c.note, 1) + '</b></div>' : '<span class="small muted">Pas encore évalué</span>') + '</div></div>' +
       '<div style="margin-top:16px">' + ui.steps(ETAPES, c.statut === 'Embauché' ? 6 : c.etape, { rejected: c.statut === 'Rejetée' || c.statut === 'Désistement', finished: c.statut === 'Embauché' }) + '</div>' +
       lock + statusAlert + (acts.length ? '<div class="rh-actions" style="margin-top:14px">' + acts.join('') + '</div>' : '') + '</div></div>' +
@@ -853,7 +882,7 @@
       '<div class="rh-file" style="margin-top:14px"><div class="rh-file__ic">PDF</div><div style="min-width:0;flex:1"><b>' + esc(c.cv || 'CV non fourni') + '</b><span class="small muted">Curriculum vitae</span></div>' + (c.cv ? '<button class="btn sm" data-x="cv">' + icon('eye') + 'Voir</button>' : '') + '</div></div></div>' +
       '<div class="card"><div class="card__h"><h3>Historique</h3></div><div class="card__b">' + hi + '</div></div></div></div>';
 
-    var map = { next: function () { moveTo(c, c.etape + 1); }, plan: function () { planifier(c); }, eval: function () { evaluer(c); }, reject: function () { rejeter(c); }, lettre: function () { lettre(c); }, desist: function () { desistement(c); }, react: function () { reactiver(c); }, cv: function () { voirCV(c); }, link: function () { rattacher(c); }, stage: function () { nouveauStagiaire({ nom: c.nom, ecole: c.diplome, origine: c.id, site: /Port-Gentil/i.test(c.ville || '') ? 'POG' : 'OWE' }); },
+    var map = { next: function () { moveTo(c, c.etape + 1); }, plan: function () { planifier(c); }, eval: function () { evaluer(c); }, reject: function () { rejeter(c); }, lettre: function () { lettre(c); }, desist: function () { desistement(c); }, react: function () { reactiver(c); }, cv: function () { voirCV(c); }, link: function () { rattacher(c); }, stage: function () { nouveauStagiaire({ nom: c.nom, ecole: c.diplome, origine: c.id, site: E.scope() || c.site || siteOfCand(c) }); },
       relance: function () { E.notify('Relance : validation d\'embauche', c.nom + ' — ' + offTitle(c), '#/recrutement/candidat/' + c.id, 'orange'); hist(c, 'Relance envoyée à la Direction générale'); E.store.save(); ui.toast('Relance envoyée à la Direction générale'); } };
     view.querySelectorAll('[data-x]').forEach(function (b) { b.onclick = function (e) { e.preventDefault(); map[b.dataset.x](); }; });
   }
@@ -897,7 +926,7 @@
   E.register({
     id: 'recrutement', label: 'Recrutement & stages', title: 'Recrutement & stages', icon: 'userplus', group: 'Ressources humaines', roles: ['rh'],
     seed: function () { return { offres: seedOffres(), candidatures: seedCandidatures(), stagiaires: seedStagiaires() }; },
-    init: function () { ensureHired(); importSite(true); },
+    init: function () { fixSites(); ensureHired(); importSite(true); },
     render: function (view, p) {
       importSite(false);
       var tab = p[0] || 'tableau';

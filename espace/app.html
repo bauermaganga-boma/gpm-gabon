@@ -31,7 +31,7 @@
     <div class="demo-bar"><span><b>Démonstration</b><span class="db-long"> — données fictives de simulation. Toutes vos actions sont enregistrées sur cet appareil.</span><span class="db-short"> · données fictives</span></span><button id="reset-demo">Réinitialiser</button></div>
     <header class="top">
       <button class="top__burger" id="burger" aria-label="Ouvrir le menu"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-      <div class="top__title"><div class="crumb" id="top-crumb"></div><h1 id="top-title">Tableau de bord</h1></div>
+      <div class="top__title"><div class="crumb"><span class="top-space" id="top-space"></span><span id="top-crumb"></span></div><h1 id="top-title">Tableau de bord</h1></div>
       <label class="top__search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input id="search" type="search" placeholder="Rechercher (navire, escale, facture, agent…) puis Entrée"></label>
       <a class="btn top__site" href="../index.html" title="Quitter l'espace de gestion et revenir au site"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 19l-7-7 7-7"/></svg><span class="ts-long">Retour au site</span><span class="ts-short">Site</span></a>
       <div><button class="top__icon" id="notif-btn" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="dot hide" id="notif-dot"></span></button></div>
@@ -44,6 +44,7 @@
 <script src="../assets/js/gpm-data.js"></script>
 <script src="js/core.js"></script>
 <script src="js/modules/dashboard.js"></script>
+<script src="js/modules/sites.js"></script>
 <script src="js/modules/escales.js"></script>
 <script src="js/modules/services.js"></script>
 <script src="js/modules/terminal.js"></script>

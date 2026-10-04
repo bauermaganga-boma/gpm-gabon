@@ -25,19 +25,30 @@
   var DOMAINES_F = ['Sécurité', 'Technique', 'Réglementaire', 'Management', 'Informatique', 'Langues'];
   var FEM = /(Aïcha|Aurélie|Clarisse|Estelle|Sandrine|Nadège|Carine|Laure|Diane|Irène|Béatrice|Sylvie|Ruth|Linda|Chancelle|Prisca|Ornella|Yolande|Christelle|Laetitia|Brenda|Joëlle|Merveille|Nadia|Emmanuella|Rolande|Sidonie|Pélagie|Esther|Grâce)$/;
   var SORTIES = [
-    { nom: 'Mouity Germain', poste: 'Chef de quai adjoint', direction: 'TER', date: E.addDays(E.today(), -185), motif: 'Départ à la retraite' },
-    { nom: 'Nkoulou Sabine', poste: 'Assistante achats', direction: 'ACH', date: E.addDays(E.today(), -110), motif: 'Démission' },
-    { nom: 'Ondjani Rufin', poste: 'Matelot', direction: 'MAR', date: E.addDays(E.today(), -280), motif: 'Départ à la retraite' },
-    { nom: 'Boukinda Max', poste: 'Technicien méthodes (CDD)', direction: 'TECH', date: E.addDays(E.today(), -34), motif: 'Fin de CDD' }
+    { nom: 'Mouity Germain', poste: 'Chef de quai adjoint', direction: 'TER', date: E.addDays(E.today(), -185), motif: 'Départ à la retraite', site: 'OWE' },
+    { nom: 'Nkoulou Sabine', poste: 'Assistante achats', direction: 'ACH', date: E.addDays(E.today(), -110), motif: 'Démission', site: 'OWE' },
+    { nom: 'Ondjani Rufin', poste: 'Matelot', direction: 'MAR', date: E.addDays(E.today(), -280), motif: 'Départ à la retraite', site: 'POG' },
+    { nom: 'Boukinda Max', poste: 'Technicien méthodes (CDD)', direction: 'TECH', date: E.addDays(E.today(), -34), motif: 'Fin de CDD', site: 'OWE' }
   ];
   var QUART = /pilote|grutier|matelot|lamaneur|capitaine|navigant|conducteur|pointeur|opérateur|patron|chef de quai|sûreté|magasin cale/i;
+  /* Site : en espace de site, imposé par l'espace actif ; en vue globale (Direction générale), filtre facultatif siteF. */
   var siteF = '';
-  function inSite(id) { if (!siteF) return true; var e = E.emp(id); return !!e && (e.site || 'OWE') === siteF; }
+  function curSite() { return E.scope() || siteF; }
+  function inSite(id) { var s = curSite(); if (!s) return true; var e = E.emp(id); return !!e && (e.site || 'OWE') === s; }
+  function sortiesSite() { var s = curSite(); return SORTIES.filter(function (x) { return !s || x.site === s; }); }
+  function formsAll() { var s = curSite(); return E.store.all('formations').filter(function (f) { return !s || !f.site || f.site === s; }); }
+  /* participants visibles dans l'espace courant */
+  function parts(f) { return (f.participants || []).filter(function (p) { return !!E.emp(p) && inSite(p); }); }
+  /* Signataire RH et adresse des documents selon le site */
+  var RH_SIGN = { OWE: { nom: 'Mbina Aurélie', titre: 'La Responsable des ressources humaines', ville: 'Owendo', adr: 'Zone portuaire d\'Owendo — B.P. 394 Libreville, Gabon' }, POG: { nom: 'Nziengui Prisca', titre: 'La Chargée des ressources humaines', ville: 'Port-Gentil', adr: 'Agence de Port-Gentil — zone portuaire, B.P. 1051 Port-Gentil, Gabon' } };
+  function rhSign(site) { return RH_SIGN[site] || RH_SIGN.OWE; }
 
   function user() { return E.session.user() || {}; }
   function canSalary() { var p = user().profile; return p === 'rh' || p === 'admin' || p === 'finance'; }
   function today() { return E.today(); }
-  function emps() { return E.store.all('employes').filter(function (e) { return e.statut !== 'Sorti' && (!siteF || (e.site || 'OWE') === siteF); }); }
+  /* all = true : ignore le filtre d'écran (indicateurs publiés pour le tableau de bord et la vue consolidée) */
+  function emps(all) { var s = all ? E.scope() : curSite(); return E.store.all('employes').filter(function (e) { return e.statut !== 'Sorti' && (!s || (e.site || 'OWE') === s); }); }
+  function empOpts() { return emps().map(function (e) { return { v: e.id, l: e.nom + ' — ' + e.id }; }); }
   function pad(n) { return String(n).padStart(2, '0'); }
   function hnum(id) { return +String(id).replace(/\D/g, '') || 0; }
   function age(d) { if (!d) return 0; var b = E.parseDate(d), t = E.parseDate(today()); var a = t.getFullYear() - b.getFullYear(); if (t.getMonth() < b.getMonth() || (t.getMonth() === b.getMonth() && t.getDate() < b.getDate())) a--; return a; }
@@ -51,7 +62,7 @@
     w.document.write('<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>' + esc(title) + '</title><base href="' + base + '"><link rel="stylesheet" href="css/erp.css"><link rel="stylesheet" href="css/rh.css"></head><body class="rh-print">' + html + '<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>');
     w.document.close();
   }
-  function nextId(col, prefix) { var max = 100; E.store.all(col).forEach(function (x) { var m = new RegExp(prefix + '-\\d{4}-(\\d+)').exec(x.id); if (m && +m[1] > max) max = +m[1]; }); return prefix + '-2026-' + String(max + 1).padStart(3, '0'); }
+  function nextId(col, prefix) { var max = 100; E.store.raw(col).forEach(function (x) { var m = new RegExp(prefix + '-\\d{4}-(\\d+)').exec(x.id); if (m && +m[1] > max) max = +m[1]; }); return prefix + '-2026-' + String(max + 1).padStart(3, '0'); }
 
   /* Compléments d'état civil des fiches du référentiel (déterministes, une seule fois) */
   function enrich() {
@@ -66,7 +77,7 @@
       e.enfants = e.situation === 'Célibataire' ? h % 2 : h % 5;
       e.cnss = '2' + String(10000000 + h * 7919).slice(-8);
       e.quart = ['EXP', 'MAR', 'TER', 'HSE'].indexOf(e.direction) >= 0 && QUART.test(e.poste || '');
-      if (!e.site) e.site = 'OWE';
+      if (!e.site) e.site = E.scope() || 'OWE';
       e.adresse = e.site === 'POG' ? ['Quartier Balise', 'Quartier Grand Village', 'Quartier Sindara', 'Matanda', 'Quartier Château', 'Ntchengué'][h % 6] + ', Port-Gentil' : ['Owendo — Cité Alénakiri', 'Akournam', 'Nzeng-Ayong', 'Owendo — Barracuda', 'Lalala', 'Awendjé'][h % 6] + ', Libreville';
       ch = true;
     });
@@ -90,10 +101,12 @@
       var demande = E.addDays(d, -(6 + i % 9)), emp = by(r[0]);
       var c = { id: 'CG-2026-' + String(201 + i).padStart(3, '0'), employe: emp, type: r[1], debut: d, fin: f < d ? d : f, jours: workDays(d, f < d ? d : f), statut: r[4], demande: demande,
         motif: r[1] === 'Maladie' ? 'Arrêt de travail — certificat médical fourni' : r[1] === 'Événement familial' ? ['Mariage d\'un enfant', 'Naissance', 'Décès d\'un parent'][i % 3] : r[1] === 'Récupération' ? 'Récupération des heures de nuit (escales)' : 'Congés annuels', historique: [] };
+      c.site = (list.find(function (x) { return x.id === emp; }) || {}).site || 'OWE';
+      var sg = rhSign(c.site).nom;
       c.historique.push({ date: demande + 'T08:30:00', par: E.empName(emp), action: 'Demande déposée' });
       if (r[4] !== 'En attente manager') c.historique.unshift({ date: E.addDays(demande, 1) + 'T10:00:00', par: 'Responsable hiérarchique', action: 'Validée par le manager' });
-      if (r[4] === 'Validé') c.historique.unshift({ date: E.addDays(demande, 2) + 'T15:00:00', par: 'Mbina Aurélie', action: 'Validée par la DRH' });
-      if (r[4] === 'Refusé') c.historique.unshift({ date: E.addDays(demande, 2) + 'T15:00:00', par: 'Mbina Aurélie', action: 'Refusée — pic d\'escales prévu sur la période (effectif minimum à quai)' });
+      if (r[4] === 'Validé') c.historique.unshift({ date: E.addDays(demande, 2) + 'T15:00:00', par: sg, action: 'Validée par la DRH' });
+      if (r[4] === 'Refusé') c.historique.unshift({ date: E.addDays(demande, 2) + 'T15:00:00', par: sg, action: 'Refusée — pic d\'escales prévu sur la période (effectif minimum à quai)' });
       return c;
     });
   }
@@ -115,9 +128,13 @@
       ['Lutte contre l\'incendie à bord et à quai — exercice annuel', 'Service HSE & sûreté GPM', 'Sécurité', D(36), D(40), by(['MAR', 'TER', 'HSE'], 16), 2600000, 'Planifiée', 'Owendo', 'Lutte contre l\'incendie'],
       ['CACES R489 — conduite de reach stacker', 'Engins Services Afrique', 'Réglementaire', D(50), D(52), [M(18), M(19), M(21)], 1950000, 'Planifiée', 'Owendo', 'CACES R489 (chariots / reach stacker)'],
       ['Pilotage : manœuvres portuaires sur simulateur', 'Centre de simulation maritime (démo)', 'Technique', D(64), D(68), [M(7), M(8), M(39)], 8900000, 'Planifiée', 'Douala (CM)', ''],
-      ['Cybersécurité et sensibilisation au hameçonnage', 'Cabinet Ogooué Conseil', 'Informatique', D(-40), D(-38), [M(35)], 2800000, 'Annulée', 'Libreville', '']
+      ['Cybersécurité et sensibilisation au hameçonnage', 'Cabinet Ogooué Conseil', 'Informatique', D(-40), D(-38), [M(35)], 2800000, 'Annulée', 'Libreville', ''],
+      /* Port-Gentil : soutage, offshore, sûreté de l'agence */
+      ['Sécurité des opérations de soutage et de transfert d\'hydrocarbures', 'Service HSE & sûreté GPM', 'Sécurité', D(-60), D(-58), [M(36), M(37), M(38)], 1900000, 'Terminée', 'Port-Gentil — appontement de soutage', 'Lutte contre l\'incendie'],
+      ['Sûreté portuaire ISPS — sensibilisation de l\'agence', 'Service HSE & sûreté GPM', 'Réglementaire', D(-25), D(-25), [M(36), M(37), M(38), M(41)], 600000, 'Terminée', 'Agence de Port-Gentil', 'Sensibilisation sûreté ISPS'],
+      ['Manœuvres de remorquage en assistance offshore', 'Centre de simulation maritime (démo)', 'Technique', D(22), D(25), [M(39), M(40)], 5200000, 'Planifiée', 'Port-Gentil', '']
     ];
-    return F.map(function (f, i) { return { id: 'FOR-2026-' + String(101 + i).padStart(3, '0'), intitule: f[0], organisme: f[1], domaine: f[2], debut: f[3], fin: f[4], participants: f[5], cout: f[6], statut: f[7], lieu: f[8], habilitation: f[9] }; });
+    return F.map(function (f, i) { return { id: 'FOR-2026-' + String(101 + i).padStart(3, '0'), intitule: f[0], organisme: f[1], domaine: f[2], debut: f[3], fin: f[4], participants: f[5], cout: f[6], statut: f[7], lieu: f[8], habilitation: f[9], site: /Port-Gentil/.test(f[8]) ? 'POG' : 'OWE' }; });
   }
   function seedHabilitations() {
     var t = today(), out = [], k = 0;
@@ -137,7 +154,7 @@
         else if (k % 7 === 0) exp = E.addDays(t, 6 + (k * 13) % 54);
         else exp = E.addDays(t, 62 + (k * 97) % Math.max(60, v * 365 - 70));
         var obt = E.addDays(exp, -Math.round(v * 365.25));
-        out.push({ id: 'HAB-' + String(1001 + k), employe: e.id, type: ty, organisme: HAB_ORG[ty] || ['Bureau Veritas Formation', 'APAVE Gabon', 'Service HSE & sûreté GPM'][k % 3], obtention: obt, expiration: exp, numero: 'N° ' + (240000 + k * 37) });
+        out.push({ id: 'HAB-' + String(1001 + k), employe: e.id, site: e.site || 'OWE', type: ty, organisme: HAB_ORG[ty] || ['Bureau Veritas Formation', 'APAVE Gabon', 'Service HSE & sûreté GPM'][k % 3], obtention: obt, expiration: exp, numero: 'N° ' + (240000 + k * 37) });
       });
     });
     return out;
@@ -165,7 +182,7 @@
   function nouveauConge(empId) {
     ui.formModal({ title: 'Nouvelle demande d\'absence', sub: 'Circuit : manager (N+1) → Ressources humaines', okLabel: 'Déposer la demande',
       fields: [
-        { name: 'employe', label: 'Employé', type: 'select', options: E.options('employes', function (e) { return e.nom + ' — ' + e.id; }), value: empId || '', required: true, full: true },
+        { name: 'employe', label: 'Employé', type: 'select', options: empOpts(), value: empId || '', required: true, full: true },
         { name: 'type', label: 'Type', type: 'select', options: TYPES_CONGE }, { name: 'motif', label: 'Motif / commentaire' },
         { name: 'debut', label: 'Du', type: 'date', required: true, value: E.addDays(today(), 7) }, { name: 'fin', label: 'Au (inclus)', type: 'date', required: true, value: E.addDays(today(), 18) }
       ],
@@ -179,13 +196,13 @@
   function nouvelleHab(empId) {
     ui.formModal({ title: 'Ajouter une habilitation', okLabel: 'Enregistrer',
       fields: [
-        { name: 'employe', label: 'Employé', type: 'select', options: E.options('employes', function (e) { return e.nom + ' — ' + e.id; }), value: empId || '', full: true },
+        { name: 'employe', label: 'Employé', type: 'select', options: empOpts(), value: empId || '', full: true },
         { name: 'type', label: 'Habilitation / certification', type: 'select', options: Object.keys(HAB), full: true },
         { name: 'organisme', label: 'Organisme', value: 'Bureau Veritas Formation' }, { name: 'numero', label: 'N° de titre', value: 'N° ' + (250000 + Math.floor(Math.random() * 9999)) },
         { name: 'obtention', label: 'Date d\'obtention', type: 'date', value: today(), required: true }
       ],
       onSubmit: function (v) {
-        var h = { id: 'HAB-' + (2000 + E.store.all('habilitations').length + 1), employe: v.employe, type: v.type, organisme: v.organisme, numero: v.numero, obtention: v.obtention, expiration: E.addDays(v.obtention, Math.round(HAB[v.type] * 365.25)) };
+        var h = { id: 'HAB-' + (2000 + E.store.raw('habilitations').length + 1), employe: v.employe, type: v.type, organisme: v.organisme, numero: v.numero, obtention: v.obtention, expiration: E.addDays(v.obtention, Math.round(HAB[v.type] * 365.25)) };
         E.store.add('habilitations', h); E.log('Habilitation ajoutée', v.type + ' · ' + E.empName(v.employe), 'personnel'); ui.toast('Habilitation enregistrée — valable jusqu\'au ' + fmt.date(h.expiration)); setTimeout(E.rerender);
       } });
   }
@@ -198,29 +215,31 @@
     ui.formModal({ title: 'Modifier la fiche', sub: esc(e.nom) + ' · ' + e.id,
       fields: [
         { name: 'poste', label: 'Poste', value: e.poste, required: true, full: true }, { name: 'direction', label: 'Direction', type: 'select', options: E.options('directions'), value: e.direction },
-        { name: 'site', label: 'Site', type: 'select', options: E.options('sites'), value: e.site || 'OWE' },
+      ].concat(E.scope() ? [] : [{ name: 'site', label: 'Site', type: 'select', options: E.options('sites'), value: e.site || 'OWE' }]).concat([
         { name: 'categorie', label: 'Catégorie', type: 'select', options: ['Employé', 'Agent de maîtrise', 'Cadre', 'Cadre sup.'], value: e.categorie },
         { name: 'contrat', label: 'Contrat', type: 'select', options: ['CDI', 'CDD', 'Stage'], value: e.contrat }, { name: 'statut', label: 'Statut', type: 'select', options: ['Actif', 'Période d\'essai', 'Suspendu'], value: e.statut },
         { name: 'salaire', label: 'Salaire de base mensuel (FCFA)', type: 'money', value: e.salaire }, { name: 'tel', label: 'Téléphone', value: e.tel }, { name: 'email', label: 'Courriel', value: e.email },
         { name: 'situation', label: 'Situation familiale', type: 'select', options: ['Célibataire', 'Marié(e)', 'Divorcé(e)', 'Veuf(ve)'], value: e.situation }, { name: 'enfants', label: 'Enfants à charge', type: 'number', min: 0, value: e.enfants || 0 }
-      ],
+      ]),
       onSubmit: function (v) { Object.assign(e, v); e.salaire = +v.salaire; e.enfants = +v.enfants; e.quart = ['EXP', 'MAR', 'TER', 'HSE'].indexOf(e.direction) >= 0 && QUART.test(e.poste); E.store.save(); E.log('Fiche employé modifiée', e.id + ' · ' + e.nom, 'personnel'); ui.toast('Fiche mise à jour'); setTimeout(E.rerender); } });
   }
   function attestationHTML(e) {
-    return '<div class="doc rh-doc"><div class="doc__head"><div class="row" style="gap:14px"><img src="../assets/img/logo.png" alt="GPM"><div class="co"><b>Gabon Port Management</b><span>Opérateur des ports d\'Owendo et de Port-Gentil</span><span>Zone portuaire d\'Owendo — B.P. 394 Libreville, Gabon</span></div></div><div style="text-align:right"><span class="small muted">Réf. DRH/ATT/' + esc(e.id) + '</span><br><b>Owendo, le ' + fmt.date(today()) + '</b></div></div>' +
+    var sg = rhSign(e.site);
+    return '<div class="doc rh-doc"><div class="doc__head"><div class="row" style="gap:14px"><img src="../assets/img/logo.png" alt="GPM"><div class="co"><b>Gabon Port Management</b><span>Opérateur des ports d\'Owendo et de Port-Gentil</span><span>' + esc(sg.adr) + '</span></div></div><div style="text-align:right"><span class="small muted">Réf. DRH/ATT/' + esc(e.id) + '</span><br><b>' + esc(sg.ville) + ', le ' + fmt.date(today()) + '</b></div></div>' +
       '<h4 style="text-align:center;margin:18px 0">ATTESTATION DE TRAVAIL</h4>' +
-      '<p>Je soussignée, <b>Mbina Aurélie</b>, Responsable des ressources humaines de Gabon Port Management (GPM), atteste que :</p>' +
+      '<p>Je soussignée, <b>' + esc(sg.nom) + '</b>, ' + esc(sg.titre.replace(/^La /, '')) + ' de Gabon Port Management (GPM), atteste que :</p>' +
       '<div class="box" style="margin:12px 0"><dl class="kv"><dt>Nom et prénoms</dt><dd><b>' + esc(e.nom) + '</b></dd><dt>Matricule</dt><dd>' + esc(e.id) + '</dd><dt>N° CNSS</dt><dd>' + esc(e.cnss || '—') + '</dd><dt>Emploi occupé</dt><dd>' + esc(e.poste) + '</dd><dt>Direction</dt><dd>' + esc(E.dirName(e.direction)) + '</dd><dt>Lieu de travail</dt><dd>' + esc(E.siteName(e.site || 'OWE')) + '</dd><dt>Catégorie</dt><dd>' + esc(e.categorie) + '</dd><dt>Nature du contrat</dt><dd>' + esc(e.contrat) + '</dd></dl></div>' +
       '<p>est employé(e) dans notre société depuis le <b>' + fmt.date(e.entree) + '</b> et y exerce à ce jour ses fonctions' + (e.statut === 'Période d\'essai' ? ' (période d\'essai en cours)' : '') + '.</p><p>La présente attestation est délivrée à l\'intéressé(e), sur sa demande, pour servir et valoir ce que de droit.</p>' +
-      '<div class="sign"><div></div><div>La Responsable des ressources humaines<br><b>Mbina Aurélie</b></div></div><div class="foot">Gabon Port Management · Owendo — Document généré par l\'espace de gestion (démonstration)</div></div>';
+      '<div class="sign"><div></div><div>' + esc(sg.titre) + '<br><b>' + esc(sg.nom) + '</b></div></div><div class="foot">Gabon Port Management · ' + esc(sg.ville) + ' — Document généré par l\'espace de gestion (démonstration)</div></div>';
   }
 
   /* ------------------------------------------------------------ vues */
   function header(view, active) {
-    var pend = E.store.all('conges').filter(function (c) { return /attente/.test(c.statut); }).length;
+    var pend = E.store.all('conges').filter(function (c) { return /attente/.test(c.statut) && inSite(c.employe); }).length;
     var alerts = E.store.all('habilitations').filter(function (h) { return habState(h).d <= 60 && inSite(h.employe); }).length;
-    view.innerHTML = '<div class="rh-head"><div><h2>Personnel & compétences</h2><p>' + emps().length + ' collaborateurs · ' + E.store.all('directions').length + ' directions · ' + (siteF ? esc(E.siteName(siteF)) : 'ports d\'Owendo et de Port-Gentil') + '</p></div><div class="rh-actions">' +
-      '<div class="rh-seg rh-sites" title="Filtrer par site">' + [['', 'Tous les sites'], ['OWE', 'Owendo'], ['POG', 'Port-Gentil']].map(function (s) { return '<button data-site="' + s[0] + '" class="' + (siteF === s[0] ? 'is-active' : '') + '">' + s[1] + '</button>'; }).join('') + '</div>' +
+    var sc = E.scope(), cs = curSite(), dirs = {}; emps().forEach(function (e) { dirs[e.direction] = 1; });
+    view.innerHTML = '<div class="rh-head"><div><h2>Personnel & compétences' + (sc ? ' · ' + esc(E.space().court) : '') + '</h2><p>' + emps().length + ' collaborateurs · ' + Object.keys(dirs).length + ' directions · ' + (cs ? esc(E.siteName(cs)) : 'ports d\'Owendo et de Port-Gentil') + '</p></div><div class="rh-actions">' +
+      (sc ? '' : '<div class="rh-seg rh-sites" title="Filtrer par site">' + [['', 'Tous les sites'], ['OWE', 'Owendo'], ['POG', 'Port-Gentil']].map(function (s) { return '<button data-site="' + s[0] + '" class="' + (siteF === s[0] ? 'is-active' : '') + '">' + s[1] + '</button>'; }).join('') + '</div>') +
       '<button class="btn" data-a="conge">' + icon('calendar') + 'Demande d\'absence</button><button class="btn" data-a="hab">' + icon('shield') + 'Ajouter une habilitation</button><button class="btn primary" data-a="form">' + icon('graduation') + 'Nouvelle formation</button></div></div>' +
       ui.tabs([{ k: 'effectifs', l: 'Effectifs' }, { k: 'annuaire', l: 'Annuaire', n: emps().length }, { k: 'conges', l: 'Congés & absences', n: pend || null }, { k: 'formations', l: 'Formations' }, { k: 'habilitations', l: 'Habilitations', n: alerts || null }], active, function (k) { E.go('personnel/' + (k === 'effectifs' ? '' : k)); }) + '<div id="pe-body"></div>';
     view.querySelector('[data-a=conge]').onclick = function () { nouveauConge(); };
@@ -240,14 +259,14 @@
     var fem = list.filter(function (e) { return e.sexe === 'F'; }).length;
     var ancM = E.sum(list, anc) / (list.length || 1), ageM = E.sum(list, function (e) { return age(e.naissance); }) / (list.length || 1);
     var y1 = E.addDays(t, -365);
-    var entrees = list.filter(function (e) { return e.entree >= y1; }), sorties = SORTIES.filter(function (s) { return s.date >= y1; });
-    var turnover = ((entrees.length + sorties.length) / 2) / (list.length || 1) * 100;
+    var entrees = list.filter(function (e) { return e.entree >= y1; }), sorts = sortiesSite().filter(function (s) { return s.date >= y1; });
+    var turnover = ((entrees.length + sorts.length) / 2) / (list.length || 1) * 100;
     var essai = list.filter(function (e) { return e.statut === 'Période d\'essai'; });
     var html = '<div class="grid g4 rh-kpis">' +
-      ui.kpi({ label: 'Effectif total', value: list.length, icon: 'users', tone: 'blue', foot: (siteF ? '' : list.filter(function (e) { return e.site !== 'POG'; }).length + ' à Owendo · ' + list.filter(function (e) { return e.site === 'POG'; }).length + ' à Port-Gentil') + (essai.length ? (siteF ? '' : ' · ') + essai.length + ' en période d\'essai' : '') }) +
+      ui.kpi({ label: 'Effectif total', value: list.length, icon: 'users', tone: 'blue', foot: (curSite() ? '' : list.filter(function (e) { return e.site !== 'POG'; }).length + ' à Owendo · ' + list.filter(function (e) { return e.site === 'POG'; }).length + ' à Port-Gentil') + (essai.length ? (curSite() ? '' : ' · ') + essai.length + ' en période d\'essai' : '') }) +
       ui.kpi({ label: 'Part des femmes', value: fmt.num(fem / (list.length || 1) * 100), unit: '%', icon: 'users', tone: 'violet', foot: fem + ' femmes · ' + (list.length - fem) + ' hommes' }) +
       ui.kpi({ label: 'Ancienneté moyenne', value: fmt.num(ancM, 1), unit: 'ans', icon: 'clock', tone: 'green', foot: 'Âge moyen ' + fmt.num(ageM, 1) + ' ans' }) +
-      ui.kpi({ label: 'Turnover (12 mois)', value: fmt.num(turnover, 1), unit: '%', icon: 'refresh', tone: 'orange', foot: entrees.length + ' entrée(s) · ' + sorties.length + ' sortie(s)' }) + '</div>';
+      ui.kpi({ label: 'Turnover (12 mois)', value: fmt.num(turnover, 1), unit: '%', icon: 'refresh', tone: 'orange', foot: entrees.length + ' entrée(s) · ' + sorts.length + ' sortie(s)' }) + '</div>';
     var dirs = E.store.all('directions').map(function (d) { return { l: d.nom, v: list.filter(function (e) { return e.direction === d.id; }).length }; }).filter(function (x) { return x.v; }).sort(function (a, b) { return b.v - a.v; });
     var cats = ['Employé', 'Agent de maîtrise', 'Cadre', 'Cadre sup.'].map(function (c, i) { return { label: c, value: list.filter(function (e) { return e.categorie === c; }).length, color: ['#94a3b8', '#2563eb', '#0f2d5c', '#f5c400'][i] }; });
     var bands = [['60 +', 60, 99], ['55-59', 55, 59], ['50-54', 50, 54], ['45-49', 45, 49], ['40-44', 40, 44], ['35-39', 35, 39], ['30-34', 30, 34], ['< 30', 0, 29]];
@@ -258,7 +277,7 @@
       '<div class="card"><div class="card__h"><h3>Par catégorie</h3></div><div class="card__b">' + ui.donut(cats, { center: list.length, sub: 'salariés' }) + '</div></div></div>';
     /* mouvements 12 mois */
     var labels = [], ent = [], sor = [], d0 = E.parseDate(t);
-    for (var i = 11; i >= 0; i--) { var d = new Date(d0.getFullYear(), d0.getMonth() - i, 1), key = d.getFullYear() + '-' + pad(d.getMonth() + 1); labels.push(E.MOIS[d.getMonth()]); ent.push(E.store.all('employes').filter(function (e) { return String(e.entree).slice(0, 7) === key; }).length); sor.push(SORTIES.filter(function (s) { return s.date.slice(0, 7) === key; }).length); }
+    for (var i = 11; i >= 0; i--) { var d = new Date(d0.getFullYear(), d0.getMonth() - i, 1), key = d.getFullYear() + '-' + pad(d.getMonth() + 1); labels.push(E.MOIS[d.getMonth()]); ent.push(emps().filter(function (e) { return String(e.entree).slice(0, 7) === key; }).length); sor.push(sortiesSite().filter(function (s) { return s.date.slice(0, 7) === key; }).length); }
     var habs = E.store.all('habilitations'), exp = habs.filter(function (h) { return habState(h).d < 0; }), soon = habs.filter(function (h) { var d = habState(h).d; return d >= 0 && d <= 60; });
     var pend = E.store.all('conges').filter(function (c) { return /attente/.test(c.statut) && inSite(c.employe); });
     habs = habs.filter(function (h) { return inSite(h.employe); }); exp = habs.filter(function (h) { return habState(h).d < 0; }); soon = habs.filter(function (h) { var d = habState(h).d; return d >= 0 && d <= 60; });
@@ -270,7 +289,7 @@
     if (retraite) alerts.push(['grey', 'users', retraite + ' collaborateur(s) de 55 ans et plus', 'Anticiper la transmission des savoirs', '#/personnel/annuaire']);
     html += '<div class="grid g3"><div class="card"><div class="card__h"><h3>Pyramide des âges</h3></div><div class="card__b">' + pyr + '</div></div>' +
       '<div class="card"><div class="card__h"><h3>Entrées et sorties</h3><span class="sub">12 derniers mois</span></div><div class="card__b">' + ui.bars({ labels: labels, series: [{ name: 'Entrées', values: ent, color: '#1e9e4a' }, { name: 'Sorties', values: sor, color: '#d93636' }], height: 180 }) +
-      '<div class="list" style="margin-top:8px">' + SORTIES.filter(function (s) { return s.date >= y1; }).map(function (s) { return '<div class="small" style="padding:4px 0;border-bottom:1px dashed var(--line)"><b>' + esc(s.nom) + '</b> · ' + esc(s.motif) + ' · ' + fmt.dateShort(s.date) + '</div>'; }).join('') + '</div></div></div>' +
+      '<div class="list" style="margin-top:8px">' + sortiesSite().filter(function (s) { return s.date >= y1; }).map(function (s) { return '<div class="small" style="padding:4px 0;border-bottom:1px dashed var(--line)"><b>' + esc(s.nom) + '</b> · ' + esc(s.motif) + ' · ' + fmt.dateShort(s.date) + '</div>'; }).join('') + '</div></div></div>' +
       '<div class="card"><div class="card__h"><h3>Points d\'attention</h3></div><div class="list">' + alerts.map(function (a) { return '<a class="list__item" href="' + a[4] + '" style="color:inherit"><div class="list__icon tone-' + a[0] + '">' + icon(a[1]) + '</div><div class="list__body"><b>' + esc(a[2]) + '</b><div class="small muted">' + esc(a[3]) + '</div></div></a>'; }).join('') + '</div></div></div>';
     body.innerHTML = html;
   }
@@ -281,14 +300,16 @@
     body.innerHTML = '<div class="filters"><input class="input" id="an-q" type="search" placeholder="Nom, poste, matricule…" value="' + esc(annF.q) + '">' + sel('an-dir', annF.dir, E.options('directions'), 'Toutes les directions') + sel('an-cat', annF.cat, ['Employé', 'Agent de maîtrise', 'Cadre', 'Cadre sup.'].map(function (c) { return { v: c, l: c }; }), 'Toutes catégories') +
       '<span class="spacer"></span><div class="rh-seg"><button data-m="cards" class="' + (annF.mode === 'cards' ? 'is-active' : '') + '" title="Cartes">' + icon('grid') + '</button><button data-m="table" class="' + (annF.mode === 'table' ? 'is-active' : '') + '" title="Tableau">' + icon('list') + '</button></div><button class="btn" id="an-csv">' + icon('download') + 'CSV</button></div><div id="an-res"></div>';
     var rows = [];
-    var cols = [{ label: 'Matricule', key: 'id', render: function (e) { return '<span class="mono">' + e.id + '</span>'; } }, { label: 'Nom', render: function (e) { return '<div class="row" style="gap:8px;flex-wrap:nowrap">' + ui.avatar(e.nom, null, true) + '<b>' + esc(e.nom) + '</b></div>'; }, csv: function (e) { return e.nom; } }, { label: 'Poste', key: 'poste' }, { label: 'Direction', render: function (e) { return esc(E.dirName(e.direction)); }, csv: function (e) { return E.dirName(e.direction); } }, { label: 'Site', render: function (e) { return e.site === 'POG' ? 'Port-Gentil' : 'Owendo'; }, csv: function (e) { return E.siteName(e.site); } }, { label: 'Catégorie', key: 'categorie' }, { label: 'Ancienneté', render: ancTxt, csv: function (e) { return fmt.num(anc(e), 1); } }, { label: 'Statut', render: function (e) { return ui.badge(e.statut, e.statut === 'Actif' ? 'green' : 'violet'); }, csv: function (e) { return e.statut; } }, { label: 'Téléphone', key: 'tel' }];
+    var cols = [{ label: 'Matricule', key: 'id', render: function (e) { return '<span class="mono">' + e.id + '</span>'; } }, { label: 'Nom', render: function (e) { return '<div class="row" style="gap:8px;flex-wrap:nowrap">' + ui.avatar(e.nom, null, true) + '<b>' + esc(e.nom) + '</b></div>'; }, csv: function (e) { return e.nom; } }, { label: 'Poste', key: 'poste' }, { label: 'Direction', render: function (e) { return esc(E.dirName(e.direction)); }, csv: function (e) { return E.dirName(e.direction); } }, { label: 'Catégorie', key: 'categorie' }, { label: 'Ancienneté', render: ancTxt, csv: function (e) { return fmt.num(anc(e), 1); } }, { label: 'Statut', render: function (e) { return ui.badge(e.statut, e.statut === 'Actif' ? 'green' : 'violet'); }, csv: function (e) { return e.statut; } }, { label: 'Téléphone', key: 'tel' }];
+    /* colonne Site uniquement en vue globale */
+    if (!E.scope()) cols.splice(4, 0, { label: 'Site', render: function (e) { return e.site === 'POG' ? 'Port-Gentil' : 'Owendo'; }, csv: function (e) { return E.siteName(e.site); } });
     var draw = function () {
       var q = E.norm(annF.q);
       rows = emps().filter(function (e) { return (!q || E.norm(e.nom + ' ' + e.poste + ' ' + e.id).indexOf(q) >= 0) && (!annF.dir || e.direction === annF.dir) && (!annF.cat || e.categorie === annF.cat); }).sort(function (a, b) { return a.nom.localeCompare(b.nom); });
       var res = body.querySelector('#an-res');
       if (annF.mode === 'table') { res.innerHTML = '<div class="card">' + ui.table(cols, rows, { onRow: function (e) { E.go('personnel/' + e.id); } }) + '</div>'; return; }
       res.innerHTML = '<div class="rh-people">' + (rows.map(function (e) {
-        return '<div class="card rh-emp" data-id="' + e.id + '"><div class="rh-person__top">' + ui.avatar(e.nom) + '<div><b>' + esc(e.nom) + '</b><span class="small muted">' + esc(e.poste) + '</span></div></div><div class="rh-person__info"><span>' + icon('anchor') + esc(E.dirName(e.direction)) + ' · ' + (e.site === 'POG' ? 'Port-Gentil' : 'Owendo') + '</span><span>' + icon('phone') + esc(e.tel || '—') + '</span><span>' + icon('mail') + esc(e.email || '—') + '</span></div>' +
+        return '<div class="card rh-emp" data-id="' + e.id + '"><div class="rh-person__top">' + ui.avatar(e.nom) + '<div><b>' + esc(e.nom) + '</b><span class="small muted">' + esc(e.poste) + '</span></div></div><div class="rh-person__info"><span>' + icon('anchor') + esc(E.dirName(e.direction)) + (E.scope() ? '' : ' · ' + (e.site === 'POG' ? 'Port-Gentil' : 'Owendo')) + '</span><span>' + icon('phone') + esc(e.tel || '—') + '</span><span>' + icon('mail') + esc(e.email || '—') + '</span></div>' +
           '<div class="rh-person__f"><span class="mono small muted">' + e.id + '</span><span class="spacer"></span>' + (e.statut !== 'Actif' ? ui.badge(e.statut, 'violet') : '<span class="small muted">' + ancTxt(e) + '</span>') + '</div></div>';
       }).join('') || '<div class="card empty">Aucun résultat</div>') + '</div>';
       res.querySelectorAll('.rh-emp').forEach(function (c) { c.onclick = function () { E.go('personnel/' + c.dataset.id); }; });
@@ -311,11 +332,11 @@
   function calendar(month) {
     var d0 = E.parseDate(month + '-01'), y = d0.getFullYear(), m = d0.getMonth(), n = new Date(y, m + 1, 0).getDate(), t = today();
     var first = month + '-01', last = month + '-' + pad(n);
-    var cg = E.store.all('conges').filter(function (c) { return c.statut !== 'Refusé' && c.statut !== 'Annulé' && c.debut <= last && c.fin >= first; });
-    var forms = E.store.all('formations').filter(function (f) { return f.statut !== 'Annulée' && f.debut <= last && f.fin >= first && E.daysBetween(f.debut, f.fin) < 15; });
+    var cg = E.store.all('conges').filter(function (c) { return c.statut !== 'Refusé' && c.statut !== 'Annulé' && c.debut <= last && c.fin >= first && inSite(c.employe); });
+    var forms = formsAll().filter(function (f) { return f.statut !== 'Annulée' && f.debut <= last && f.fin >= first && E.daysBetween(f.debut, f.fin) < 15; });
     var rows = {};
     cg.forEach(function (c) { (rows[c.employe] = rows[c.employe] || []).push({ debut: c.debut, fin: c.fin, type: c.type, pending: c.statut !== 'Validé' }); });
-    forms.forEach(function (f) { f.participants.slice(0, 6).forEach(function (p) { (rows[p] = rows[p] || []).push({ debut: f.debut, fin: f.fin, type: 'Formation', pending: false }); }); });
+    forms.forEach(function (f) { parts(f).slice(0, 6).forEach(function (p) { (rows[p] = rows[p] || []).push({ debut: f.debut, fin: f.fin, type: 'Formation', pending: false }); }); });
     var head = '<tr><th class="who">Collaborateur</th>';
     for (var i = 1; i <= n; i++) { var dd = new Date(y, m, i), we = dd.getDay() === 0 || dd.getDay() === 6, key = month + '-' + pad(i); head += '<th class="' + (we ? 'we ' : '') + (key === t ? 'today' : '') + '">' + 'DLMMJVS'[dd.getDay()] + '<br>' + i + '</th>'; }
     head += '</tr>';
@@ -365,9 +386,9 @@
   }
 
   function renderFormations(body) {
-    var all = E.store.all('formations'), act = all.filter(function (f) { return f.statut !== 'Annulée'; });
-    var yr = today().slice(0, 4), budget = 85000000, engage = E.sum(act, 'cout'), realise = E.sum(all.filter(function (f) { return f.statut === 'Terminée'; }), 'cout');
-    var part = {}; act.forEach(function (f) { f.participants.forEach(function (p) { part[p] = 1; }); });
+    var all = formsAll(), act = all.filter(function (f) { return f.statut !== 'Annulée'; });
+    var yr = today().slice(0, 4), budget = { OWE: 65000000, POG: 20000000 }[curSite()] || 85000000, engage = E.sum(act, 'cout'), realise = E.sum(all.filter(function (f) { return f.statut === 'Terminée'; }), 'cout');
+    var part = {}; act.forEach(function (f) { parts(f).forEach(function (p) { part[p] = 1; }); });
     var html = '<div class="grid g4 rh-kpis">' + ui.kpi({ label: 'Budget formation ' + yr, value: fmt.short(budget), unit: 'FCFA', icon: 'wallet', tone: 'blue', foot: fmt.pct(engage / budget * 100) + ' engagé' }) +
       ui.kpi({ label: 'Réalisé', value: fmt.short(realise), unit: 'FCFA', icon: 'check', tone: 'green', foot: all.filter(function (f) { return f.statut === 'Terminée'; }).length + ' sessions terminées' }) +
       ui.kpi({ label: 'Sessions à venir', value: all.filter(function (f) { return f.statut === 'Planifiée' || f.statut === 'En cours'; }).length, icon: 'calendar', tone: 'violet', foot: all.filter(function (f) { return f.statut === 'En cours'; }).length + ' en cours' }) +
@@ -375,37 +396,40 @@
     var byDom = DOMAINES_F.map(function (d) { return { l: d, v: E.sum(act.filter(function (f) { return f.domaine === d; }), 'cout') }; }).filter(function (x) { return x.v; });
     html += '<div class="grid g-2-1" style="margin-bottom:16px"><div class="card"><div class="card__h"><h3>Plan de formation</h3><span class="sub">calendrier des sessions sur 12 mois</span></div>' + ui.gantt({ rows: all.filter(function (f) { return f.statut !== 'Annulée'; }).map(function (f) { return { label: f.intitule, sub: f.organisme, start: f.debut, end: f.fin, progress: f.statut === 'Terminée' ? 100 : f.statut === 'En cours' ? 50 : 0, onClick: function () { ficheFormation(f); } }; }), from: E.addDays(today(), -250), to: E.addDays(today(), 90), unit: 'month', title: 'Session' }) + '</div>' +
       '<div class="card"><div class="card__h"><h3>Coût par domaine</h3></div><div class="card__b">' + ui.donut(byDom.map(function (x, i) { return { label: x.l, value: x.v, color: ui.PALETTE[i] }; }), { money: true, center: fmt.short(engage), sub: 'FCFA engagés' }) + '<div style="margin-top:14px">' + ui.progress(engage / budget * 100) + '<div class="small muted" style="margin-top:4px">Consommation du budget annuel</div></div></div></div></div>';
-    var cols = [{ label: 'Formation', render: function (f) { return '<b>' + esc(f.intitule) + '</b><div class="small muted">' + esc(f.organisme) + ' · ' + esc(f.lieu) + '</div>'; }, csv: function (f) { return f.intitule; } }, { label: 'Domaine', key: 'domaine' }, { label: 'Dates', render: function (f) { return fmt.dateShort(f.debut) + ' → ' + fmt.dateShort(f.fin); }, csv: function (f) { return f.debut; } }, { label: 'Participants', num: true, render: function (f) { return f.participants.length; }, csv: function (f) { return f.participants.length; } }, { label: 'Coût', num: true, render: function (f) { return fmt.money(f.cout); }, csv: function (f) { return f.cout; } }, { label: 'Statut', render: function (f) { return ui.badge(f.statut, { 'Terminée': 'green', 'En cours': 'blue', 'Planifiée': 'violet', 'Annulée': 'grey' }[f.statut]); }, csv: function (f) { return f.statut; } }];
+    var cols = [{ label: 'Formation', render: function (f) { return '<b>' + esc(f.intitule) + '</b><div class="small muted">' + esc(f.organisme) + ' · ' + esc(f.lieu) + '</div>'; }, csv: function (f) { return f.intitule; } }, { label: 'Domaine', key: 'domaine' }, { label: 'Dates', render: function (f) { return fmt.dateShort(f.debut) + ' → ' + fmt.dateShort(f.fin); }, csv: function (f) { return f.debut; } }, { label: 'Participants', num: true, render: function (f) { return parts(f).length; }, csv: function (f) { return parts(f).length; } }, { label: 'Coût', num: true, render: function (f) { return fmt.money(f.cout); }, csv: function (f) { return f.cout; } }, { label: 'Statut', render: function (f) { return ui.badge(f.statut, { 'Terminée': 'green', 'En cours': 'blue', 'Planifiée': 'violet', 'Annulée': 'grey' }[f.statut]); }, csv: function (f) { return f.statut; } }];
     var rows = all.slice().sort(function (a, b) { return a.debut.localeCompare(b.debut); });
-    html += '<div class="card"><div class="card__h"><h3>Sessions</h3><span class="sub">' + all.length + '</span><button class="btn sm" style="margin-left:auto" id="fo-csv">' + icon('download') + 'Export CSV</button></div>' + ui.table(cols, rows, { onRow: ficheFormation, footer: function (r) { return '<td colspan="3">Total du plan (hors annulées)</td><td class="num">' + E.sum(act, function (f) { return f.participants.length; }) + '</td><td class="num">' + fmt.money(engage) + '</td><td></td>'; } }) + '</div>';
+    html += '<div class="card"><div class="card__h"><h3>Sessions</h3><span class="sub">' + all.length + '</span><button class="btn sm" style="margin-left:auto" id="fo-csv">' + icon('download') + 'Export CSV</button></div>' + ui.table(cols, rows, { onRow: ficheFormation, footer: function (r) { return '<td colspan="3">Total du plan (hors annulées)</td><td class="num">' + E.sum(act, function (f) { return parts(f).length; }) + '</td><td class="num">' + fmt.money(engage) + '</td><td></td>'; } }) + '</div>';
     body.innerHTML = html;
     body.querySelector('#fo-csv').onclick = function () { ui.exportCSV('plan-formation-gpm', cols.concat([{ label: 'Organisme', key: 'organisme' }]), rows); };
   }
   function ficheFormation(f) {
     var acts = [{ label: 'Fermer' }];
     if (f.statut === 'Planifiée' || f.statut === 'En cours') {
-      acts.push({ label: 'Inscrire un participant', icon: 'plus', onClick: function (cl) { cl(); ui.formModal({ title: 'Inscrire un participant', sub: esc(f.intitule), fields: [{ name: 'p', label: 'Collaborateur', type: 'select', options: E.store.all('employes').filter(function (e) { return f.participants.indexOf(e.id) < 0; }).map(function (e) { return { v: e.id, l: e.nom + ' — ' + e.poste }; }) }], onSubmit: function (v) { f.participants.push(v.p); E.store.save(); E.log('Inscription formation', f.intitule + ' · ' + E.empName(v.p), 'personnel'); ui.toast(E.empName(v.p) + ' inscrit(e)'); setTimeout(function () { E.rerender(); ficheFormation(f); }); } }); } });
+      acts.push({ label: 'Inscrire un participant', icon: 'plus', onClick: function (cl) { cl(); ui.formModal({ title: 'Inscrire un participant', sub: esc(f.intitule), fields: [{ name: 'p', label: 'Collaborateur', type: 'select', options: emps().filter(function (e) { return f.participants.indexOf(e.id) < 0 && (!f.site || e.site === f.site); }).map(function (e) { return { v: e.id, l: e.nom + ' — ' + e.poste }; }) }], onSubmit: function (v) { f.participants.push(v.p); E.store.save(); E.log('Inscription formation', f.intitule + ' · ' + E.empName(v.p), 'personnel'); ui.toast(E.empName(v.p) + ' inscrit(e)'); setTimeout(function () { E.rerender(); ficheFormation(f); }); } }); } });
       acts.push({ label: 'Marquer comme réalisée', cls: 'success', icon: 'check', onClick: function (cl) {
         f.statut = 'Terminée'; var n = 0;
-        if (f.habilitation) f.participants.forEach(function (p) { var h = E.store.all('habilitations').find(function (x) { return x.employe === p && x.type === f.habilitation; }); var exp = E.addDays(f.fin, Math.round((HAB[f.habilitation] || 3) * 365.25)); if (h) { h.obtention = f.fin; h.expiration = exp; h.organisme = f.organisme; } else E.store.all('habilitations').push({ id: 'HAB-' + (3000 + E.store.all('habilitations').length), employe: p, type: f.habilitation, organisme: f.organisme, obtention: f.fin, expiration: exp, numero: 'N° ' + (260000 + n) }); n++; });
+        if (f.habilitation) parts(f).forEach(function (p) { var h = E.store.all('habilitations').find(function (x) { return x.employe === p && x.type === f.habilitation; }); var exp = E.addDays(f.fin, Math.round((HAB[f.habilitation] || 3) * 365.25)); if (h) { h.obtention = f.fin; h.expiration = exp; h.organisme = f.organisme; } else E.store.all('habilitations').push({ id: 'HAB-' + (3000 + E.store.raw('habilitations').length), employe: p, type: f.habilitation, organisme: f.organisme, obtention: f.fin, expiration: exp, numero: 'N° ' + (260000 + n) }); n++; });
         E.store.save(); E.log('Formation réalisée', f.intitule, 'personnel'); cl(); ui.toast('Session clôturée' + (n ? ' — ' + n + ' habilitation(s) mises à jour automatiquement' : '')); E.rerender();
       } });
     }
     ui.modal({ title: f.intitule, sub: f.id + ' · ' + esc(f.organisme), size: 'lg', body:
-      '<div class="grid g2"><dl class="kv"><dt>Domaine</dt><dd>' + esc(f.domaine) + '</dd><dt>Dates</dt><dd>du ' + fmt.date(f.debut) + ' au ' + fmt.date(f.fin) + '</dd><dt>Lieu</dt><dd>' + esc(f.lieu) + '</dd></dl><dl class="kv"><dt>Coût</dt><dd><b>' + fmt.money(f.cout) + '</b></dd><dt>Coût / participant</dt><dd>' + fmt.money(f.cout / (f.participants.length || 1)) + '</dd><dt>Statut</dt><dd>' + ui.badge(f.statut) + '</dd></dl></div>' +
+      '<div class="grid g2"><dl class="kv"><dt>Domaine</dt><dd>' + esc(f.domaine) + '</dd><dt>Dates</dt><dd>du ' + fmt.date(f.debut) + ' au ' + fmt.date(f.fin) + '</dd><dt>Lieu</dt><dd>' + esc(f.lieu) + '</dd></dl><dl class="kv"><dt>Coût</dt><dd><b>' + fmt.money(f.cout) + '</b></dd><dt>Coût / participant</dt><dd>' + fmt.money(f.cout / (parts(f).length || 1)) + '</dd><dt>Statut</dt><dd>' + ui.badge(f.statut) + '</dd></dl></div>' +
       (f.habilitation ? '<div class="alert tone-blue" style="margin-top:12px">' + icon('shield') + '<div>Formation qualifiante : à sa réalisation, l\'habilitation <b>' + esc(f.habilitation) + '</b> des participants est renouvelée automatiquement.</div></div>' : '') +
-      '<h4 style="margin:16px 0 8px;font-size:14px">Participants (' + f.participants.length + ')</h4><div class="list">' + f.participants.map(function (p) { var e = E.emp(p) || {}; return '<a class="list__item" href="#/personnel/' + p + '" style="color:inherit;padding:8px 0">' + ui.avatar(e.nom || p, null, true) + '<div class="list__body"><b>' + esc(e.nom || p) + '</b><div class="small muted">' + esc(e.poste || '') + ' · ' + esc(E.dirName(e.direction)) + '</div></div></a>'; }).join('') + '</div>', actions: acts });
+      '<h4 style="margin:16px 0 8px;font-size:14px">Participants (' + parts(f).length + ')</h4><div class="list">' + parts(f).map(function (p) { var e = E.emp(p) || {}; return '<a class="list__item" href="#/personnel/' + p + '" style="color:inherit;padding:8px 0">' + ui.avatar(e.nom || p, null, true) + '<div class="list__body"><b>' + esc(e.nom || p) + '</b><div class="small muted">' + esc(e.poste || '') + ' · ' + esc(E.dirName(e.direction)) + '</div></div></a>'; }).join('') + '</div>', actions: acts });
     document.querySelectorAll('.modal-back .list__item').forEach(function (a) { a.addEventListener('click', function () { var b = document.querySelector('.modal-back'); if (b) b.remove(); }); });
   }
   function nouvelleFormation() {
-    ui.formModal({ title: 'Nouvelle session de formation', sub: 'Plan de formation annuel', okLabel: 'Planifier',
+    var sc = E.scope(), def = curSite() || 'OWE';
+    ui.formModal({ title: 'Nouvelle session de formation', sub: 'Plan de formation annuel' + (sc ? ' · ' + E.space().court : ''), okLabel: 'Planifier',
       fields: [{ name: 'intitule', label: 'Intitulé', required: true, full: true }, { name: 'organisme', label: 'Organisme', required: true }, { name: 'domaine', label: 'Domaine', type: 'select', options: DOMAINES_F },
         { name: 'debut', label: 'Début', type: 'date', required: true, value: E.addDays(today(), 21) }, { name: 'fin', label: 'Fin', type: 'date', required: true, value: E.addDays(today(), 23) },
-        { name: 'cout', label: 'Coût total (FCFA)', type: 'money', required: true }, { name: 'lieu', label: 'Lieu', value: 'Salle de formation — siège Owendo' },
-        { name: 'habilitation', label: 'Habilitation délivrée (facultatif)', type: 'select', options: [''].concat(Object.keys(HAB)), full: true },
-        { name: 'participants', label: 'Participants : direction concernée', type: 'select', options: [{ v: '', l: 'Aucun pour l\'instant' }].concat(E.options('directions')), full: true }],
+        { name: 'cout', label: 'Coût total (FCFA)', type: 'money', required: true }, { name: 'lieu', label: 'Lieu', value: def === 'POG' ? 'Salle de formation — agence de Port-Gentil' : 'Salle de formation — siège Owendo' }]
+        .concat(sc ? [] : [{ name: 'site', label: 'Site', type: 'select', options: E.options('sites'), value: def }])
+        .concat([{ name: 'habilitation', label: 'Habilitation délivrée (facultatif)', type: 'select', options: [''].concat(Object.keys(HAB)), full: true },
+        { name: 'participants', label: 'Participants : direction concernée', type: 'select', options: [{ v: '', l: 'Aucun pour l\'instant' }].concat(E.options('directions')), full: true }]),
       onSubmit: function (v) {
-        var f = { id: nextId('formations', 'FOR'), intitule: v.intitule, organisme: v.organisme, domaine: v.domaine, debut: v.debut, fin: v.fin, cout: +v.cout, lieu: v.lieu, habilitation: v.habilitation, statut: 'Planifiée', participants: v.participants ? E.store.all('employes').filter(function (e) { return e.direction === v.participants; }).map(function (e) { return e.id; }) : [] };
+        var site = sc || v.site || 'OWE';
+        var f = { id: nextId('formations', 'FOR'), site: site, intitule: v.intitule, organisme: v.organisme, domaine: v.domaine, debut: v.debut, fin: v.fin, cout: +v.cout, lieu: v.lieu, habilitation: v.habilitation, statut: 'Planifiée', participants: v.participants ? E.store.all('employes').filter(function (e) { return e.direction === v.participants && e.statut !== 'Sorti' && (e.site || 'OWE') === site; }).map(function (e) { return e.id; }) : [] };
         E.store.add('formations', f); E.log('Formation planifiée', f.intitule, 'personnel'); ui.toast('Session planifiée (' + f.participants.length + ' participant(s))'); setTimeout(function () { E.go('personnel/formations'); E.rerender(); });
       } });
   }
@@ -476,7 +500,8 @@
     },
     summary: function () {
       var a = E.store.all('habilitations').filter(function (h) { return habState(h).d <= 60; }).length;
-      return [{ label: 'Effectif', value: String(emps().length), icon: 'users', tone: 'blue', foot: absentToday().length + ' absent(s) aujourd\'hui' + (a ? ' · ' + a + ' habilitation(s) en alerte' : ''), href: '#/personnel' }];
+      var sc = E.scope(), all = emps(true);
+      return [{ label: 'Effectif', value: String(all.length), icon: 'users', tone: 'blue', foot: (sc ? '' : all.filter(function (e) { return e.site !== 'POG'; }).length + ' Owendo · ' + all.filter(function (e) { return e.site === 'POG'; }).length + ' Port-Gentil · ') + absentToday().length + ' absent(s) aujourd\'hui' + (a ? ' · ' + a + ' habilitation(s) en alerte' : ''), href: '#/personnel' }];
     },
     pending: function (u) {
       if (u.profile !== 'rh' && u.profile !== 'admin') return [];
@@ -486,7 +511,7 @@
       return out;
     },
     search: function (q) {
-      return E.store.all('formations').filter(function (f) { return E.norm(f.intitule + ' ' + f.organisme).indexOf(q) >= 0; }).map(function (f) { return { title: f.intitule, sub: 'Formation · ' + fmt.date(f.debut), href: '#/personnel/formations' }; });
+      return formsAll().filter(function (f) { return E.norm(f.intitule + ' ' + f.organisme).indexOf(q) >= 0; }).map(function (f) { return { title: f.intitule, sub: 'Formation · ' + fmt.date(f.debut), href: '#/personnel/formations' }; });
     },
     badge: function () { return E.store.all('conges').filter(function (c) { return c.statut === 'En attente RH'; }).length + E.store.all('habilitations').filter(function (h) { return habState(h).d < 0; }).length; }
   });

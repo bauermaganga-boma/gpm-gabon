@@ -5,24 +5,39 @@
 
   function render(view, params) {
     var tab = params[0] || 'droits';
-    view.innerHTML = '<div class="section-title" style="margin-bottom:14px"><div><h2>Administration</h2><p>Comptes, droits d\'accès, circuits de validation et traçabilité.</p></div></div>' +
+    var sc = E.scope(), sp = E.space();
+    view.innerHTML = '<div class="section-title" style="margin-bottom:14px"><div><h2>Administration' + (sc ? ' · ' + esc(sp.nom) : '') + '</h2><p>' + (sc ? 'Comptes, droits d\'accès, circuits de validation et traçabilité de l\'espace ' + esc(sp.court) + ' (' + esc(sp.ville) + ').' : 'Comptes, droits d\'accès, circuits de validation et traçabilité des deux espaces (Libreville et Port-Gentil).') + '</p></div></div>' +
       ui.tabs([{ k: 'droits', l: 'Utilisateurs & droits' }, { k: 'circuits', l: 'Circuits de validation' }, { k: 'journal', l: 'Journal d\'audit', n: E.audit().length }, { k: 'integrations', l: 'Intégrations' }, { k: 'demo', l: 'Données de démonstration' }], tab, function (k) { E.go('admin/' + k); }) +
       '<div id="adm"></div>';
     var el = E.$('#adm', view);
     if (tab === 'droits') droits(el); else if (tab === 'circuits') circuits(el); else if (tab === 'journal') journal(el); else if (tab === 'integrations') integrations(el); else demo(el);
   }
 
+  /* Module accessible dans l'espace courant (modules propres à un site, modules désactivés par la Direction générale) */
+  function inSpace(m) {
+    var sc = E.scope() || 'ALL';
+    if (m.scopes && m.scopes.indexOf(sc) < 0) return false;
+    if (sc === 'ALL') return !m.scopes || m.scopes.indexOf('ALL') >= 0;
+    if (m.sites && m.sites.indexOf(sc) < 0) return false;
+    return m.id === 'dashboard' || E.siteConf(sc).off.indexOf(m.id) < 0;
+  }
+  var SPL = { ALL: 'Direction générale', OWE: 'Libreville', POG: 'Port-Gentil' };
   function droits(el) {
-    var mods = E.modules.filter(function (m) { return !m.hidden && m.id !== 'admin'; });
-    el.innerHTML = '<div class="grid g-1-2">' +
-      '<div class="card"><div class="card__h"><h3>Comptes</h3><span class="sub">' + E.USERS.length + ' comptes de démonstration</span></div><div class="card__b flush"><div class="list">' +
-      E.USERS.map(function (u) { return '<div class="list__item">' + ui.avatar(u.name, u.color) + '<div class="list__body"><b>' + esc(u.name) + '</b><div class="small muted">' + esc(u.role) + '</div><div class="small"><span class="mono">' + u.login + '</span> · ' + ui.badge('Actif', 'green') + '</div></div></div>'; }).join('') +
+    var sc = E.scope(), multi = E.session.multi();
+    var mods = E.modules.filter(function (m) { return !m.hidden && m.id !== 'admin' && inSpace(m); });
+    var users = E.USERS.filter(function (u) { return !sc || u.space === sc; });
+    var note = sc ? '<div class="alert tone-blue" style="margin-bottom:16px">' + E.icon('info') + '<div>Espace <b>' + esc(E.space().court) + '</b> : ' + users.length + ' comptes et ' + mods.length + ' modules actifs. ' + (multi ? 'Activez ou désactivez les modules de chaque site dans <a href="#/espaces" data-glob>Espaces &amp; sites</a> (vue globale).' : 'Les modules de l\'espace et ses spécificités sont paramétrés par la Direction générale dans « Espaces &amp; sites ».') + '</div></div>'
+      : '<div class="alert tone-blue" style="margin-bottom:16px">' + E.icon('info') + '<div>Chaque site dispose de son espace, de ses comptes et de ses modules. Activez ou désactivez les modules de chaque site dans <a href="#/espaces">Espaces &amp; sites</a>.</div></div>';
+    el.innerHTML = note + '<div class="grid g-1-2">' +
+      '<div class="card"><div class="card__h"><h3>Comptes</h3><span class="sub">' + users.length + ' comptes de démonstration' + (sc ? ' · ' + esc(SPL[sc]) : '') + '</span></div><div class="card__b flush"><div class="list">' +
+      users.map(function (u) { return '<div class="list__item">' + ui.avatar(u.name, u.color) + '<div class="list__body"><b>' + esc(u.name) + '</b><div class="small muted">' + esc(u.role) + '</div><div class="small"><span class="mono">' + u.login + '</span> · ' + (sc ? '' : ui.badge(SPL[u.space] || u.space, u.space === 'POG' ? 'green' : u.space === 'OWE' ? 'blue' : 'navy') + ' ') + ui.badge('Actif', 'green') + '</div></div></div>'; }).join('') +
       '</div></div></div>' +
-      '<div class="card"><div class="card__h"><h3>Matrice des droits</h3><span class="sub">modules accessibles par profil</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Module</th>' + PROFILS.map(function (p) { return '<th class="center">' + esc(p[1]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      '<div class="card"><div class="card__h"><h3>Matrice des droits</h3><span class="sub">modules accessibles par profil' + (sc ? ' · espace ' + esc(SPL[sc]) : ' · vue globale') + '</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Module</th>' + PROFILS.map(function (p) { return '<th class="center">' + esc(p[0] === 'admin' && sc ? 'Direction du site' : p[1]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
       mods.map(function (m) { return '<tr><td class="strong nowrap">' + esc(m.label) + '</td>' + PROFILS.map(function (p) { var ok = p[0] === 'admin' || !m.roles || m.roles.indexOf(p[0]) >= 0; return '<td class="center">' + (ok ? '<span style="color:var(--green)">' + E.icon('check') + '</span>' : '<span class="muted">—</span>') + '</td>'; }).join('') + '</tr>'; }).join('') +
       '</tbody></table></div><div class="card__b small muted">En production : comptes nominatifs pour chaque agent, mot de passe personnel, double authentification pour la Direction et la Finance, droits réglables par module et par action (lecture, saisie, validation).</div></div>' +
       '</div>';
-    E.$$('svg', el).forEach(function (s) { s.style.width = '16px'; });
+    E.$$('.tbl svg', el).forEach(function (s) { s.style.width = '16px'; });
+    var g = E.$('[data-glob]', el); if (g) g.onclick = function (e) { e.preventDefault(); E.switchSpace('ALL'); setTimeout(function () { E.go('espaces'); }, 50); };
   }
 
   function circuits(el) {
@@ -44,9 +59,9 @@
 
   function journal(el) {
     var rows = E.audit();
-    el.innerHTML = '<div class="card"><div class="card__h"><h3>Journal d\'audit</h3><span class="sub">toutes les actions réalisées pendant la démonstration</span><span class="spacer"></span><button class="btn sm" id="exp">' + E.icon('download') + 'Exporter</button></div>' +
-      ui.table([{ label: 'Date', render: function (r) { return '<span class="nowrap">' + fmt.datetime(r.at) + '</span>'; } }, { label: 'Utilisateur', render: function (r) { return esc(r.user); } }, { label: 'Module', key: 'module' }, { label: 'Action', render: function (r) { return '<b>' + esc(r.action) + '</b>'; } }, { label: 'Détail', key: 'detail' }], rows, { empty: 'Aucune action pour le moment : validez une demande, créez un bon de commande… elles apparaîtront ici.' }) + '</div>';
-    E.$('#exp', el).onclick = function () { ui.exportCSV('journal-audit', [{ label: 'Date', key: 'at' }, { label: 'Utilisateur', key: 'user' }, { label: 'Module', key: 'module' }, { label: 'Action', key: 'action' }, { label: 'Détail', key: 'detail' }], rows); };
+    el.innerHTML = '<div class="card"><div class="card__h"><h3>Journal d\'audit</h3><span class="sub">' + (E.scope() ? 'actions réalisées dans l\'espace ' + esc(SPL[E.scope()]) : 'actions réalisées dans les deux espaces') + '</span><span class="spacer"></span><button class="btn sm" id="exp">' + E.icon('download') + 'Exporter</button></div>' +
+      ui.table([{ label: 'Date', render: function (r) { return '<span class="nowrap">' + fmt.datetime(r.at) + '</span>'; } }, { label: 'Utilisateur', render: function (r) { return esc(r.user); } }].concat(E.scope() ? [] : [{ label: 'Espace', render: function (r) { return esc(r.site ? SPL[r.site] : 'Global'); } }]).concat([{ label: 'Module', key: 'module' }, { label: 'Action', render: function (r) { return '<b>' + esc(r.action) + '</b>'; } }, { label: 'Détail', key: 'detail' }]), rows, { empty: 'Aucune action pour le moment : validez une demande, créez un bon de commande… elles apparaîtront ici.' }) + '</div>';
+    E.$('#exp', el).onclick = function () { ui.exportCSV('journal-audit', [{ label: 'Date', key: 'at' }, { label: 'Utilisateur', key: 'user' }, { label: 'Espace', csv: function (r) { return r.site ? SPL[r.site] : 'Global'; } }, { label: 'Module', key: 'module' }, { label: 'Action', key: 'action' }, { label: 'Détail', key: 'detail' }], rows); };
   }
 
   function integrations(el) {

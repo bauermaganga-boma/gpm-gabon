@@ -39,7 +39,47 @@
   function moisCourt(m) { var d = E.parseDate(m + '-01'); return E.MOIS[d.getMonth()] + ' ' + String(d.getFullYear()).slice(2); }
   function finMois(m) { var d = E.parseDate(m + '-01'); return E.iso(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
   function moisSuivant(m) { var d = E.parseDate(m + '-01'); d.setMonth(d.getMonth() + 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); }
-  function periodes() { return E.store.all('paie_periodes').slice().sort(function (a, b) { return a.mois.localeCompare(b.mois); }); }
+  /* ---- Espaces par site ----
+     Chaque site a sa propre paie (une période par site et par mois, circuit RH → DAF du site).
+     En vue globale (Direction générale), les périodes des deux sites sont consolidées (sommes, étape la moins avancée). */
+  var SITES = ['OWE', 'POG'], SITE_L = { OWE: 'Owendo', POG: 'Port-Gentil' };
+  var SIGN = { OWE: { daf: 'Moussounda Christelle', dafT: 'La Directrice administrative et financière', rh: 'Mbina Aurélie', gest: 'Ngoua Béatrice', adr: 'Zone portuaire d\'Owendo — B.P. 394 Libreville', compte: '7781' },
+    POG: { daf: 'Boukandou Gisèle', dafT: 'La Responsable administrative et financière', rh: 'Nziengui Prisca', gest: 'Nziengui Prisca', adr: 'Agence de Port-Gentil — B.P. 1051 Port-Gentil', compte: '7794' } };
+  function sign(site) { return SIGN[site || E.scope() || 'OWE'] || SIGN.OWE; }
+  function sumTot(list) { var t = {}; list.forEach(function (x) { Object.keys(x || {}).forEach(function (k) { t[k] = (t[k] || 0) + (+x[k] || 0); }); }); return t; }
+  function periodes() {
+    var list = E.store.all('paie_periodes');
+    if (E.scope()) return list.slice().sort(function (a, b) { return a.mois.localeCompare(b.mois); });
+    var by = {}; list.forEach(function (p) { (by[p.mois] = by[p.mois] || []).push(p); });
+    return Object.keys(by).sort().map(function (m) {
+      var l = by[m], parts = {}; l.forEach(function (p) { parts[p.site || 'OWE'] = p; });
+      var h = [].concat.apply([], l.map(function (p) { return (p.historique || []).map(function (x) { return Object.assign({}, x, { action: SITE_L[p.site || 'OWE'] + ' — ' + x.action }); }); })).sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+      return { id: m, mois: m, virtual: true, parts: parts, etape: Math.min.apply(null, l.map(function (p) { return p.etape; })), totaux: sumTot(l.map(function (p) { return p.totaux; })), historique: h };
+    });
+  }
+  function periode(m) { return periodes().find(function (p) { return p.mois === m; }) || null; }
+  /* site d'un bulletin */
+  function siteOfB(b) { if (b.site === 'OWE' || b.site === 'POG') return b.site; var e = E.store.raw('employes').find(function (x) { return x.id === b.employe; }); return (e && e.site) || 'OWE'; }
+  /* Une période consolidée (données antérieures) est éclatée en une période par site. */
+  function splitPeriods() {
+    E.withScope('', function () {
+      var raw = E.store.raw('paie_periodes'); if (!raw.some(function (p) { return !p.split; })) return;
+      var keep = raw.filter(function (p) { return p.split; }), old = raw.filter(function (p) { return !p.split; }), allB = E.store.raw('paies');
+      var lastM = allB.map(function (b) { return b.mois; }).sort().slice(-1)[0], ref = allB.filter(function (b) { return b.mois === lastM; });
+      var share = function (s) { var l = ref.filter(function (b) { return siteOfB(b) === s; }); return { g: E.sum(ref, 'gains') ? E.sum(l, 'gains') / E.sum(ref, 'gains') : (s === 'OWE' ? 0.85 : 0.15), e: ref.length ? l.length / ref.length : (s === 'OWE' ? 0.85 : 0.15) }; };
+      var out = keep.slice();
+      old.forEach(function (p) {
+        SITES.forEach(function (st) {
+          if (out.some(function (k) { return k.mois === p.mois && k.site === st; })) return;
+          var bs = allB.filter(function (b) { return b.mois === p.mois && siteOfB(b) === st; }), t = {};
+          if (bs.length) t = totaux(bs); else { var sh = share(st); Object.keys(p.totaux || {}).forEach(function (k) { t[k] = Math.round((+p.totaux[k] || 0) * (k === 'effectif' ? sh.e : sh.g)); }); }
+          var sg = sign(st);
+          out.push({ id: p.mois, mois: p.mois, site: st, split: true, etape: p.etape, totaux: t, calcule: p.calcule, historique: (p.historique || []).map(function (x) { return Object.assign({}, x, { par: x.par === 'Moussounda Christelle' ? sg.daf : x.par === 'Mbina Aurélie' ? sg.rh : x.par === 'Ngoua Béatrice' ? sg.gest : x.par, action: String(x.action).replace(/\(\d+ bénéficiaires\)/, '(' + (t.effectif || bs.length) + ' bénéficiaires)') }); }) });
+        });
+      });
+      E.store.set('paie_periodes', out);
+    });
+  }
   function courante() { var ps = periodes(); return ps.filter(function (p) { return p.etape < 4; })[0] || ps[ps.length - 1]; }
   function bulletins(m) { return E.store.all('paies').filter(function (b) { return b.mois === m; }); }
   function moisAvecBulletins() { var o = {}; E.store.all('paies').forEach(function (b) { o[b.mois] = 1; }); return Object.keys(o).sort().reverse(); }
@@ -112,13 +152,14 @@
     var avances = E.sum(retNet, 'ret');
     var hs = E.sum(L.filter(function (x) { return x.code === '130' || x.code === '131' || x.code === '132'; }), 'gain');
     return {
-      id: 'BUL-' + m + '-' + e.id, mois: m, employe: e.id, nom: e.nom, poste: e.poste, direction: e.direction, categorie: e.categorie, entree: e.entree, cnss: e.cnss, parts: nb, salaireBase: e.salaire,
+      id: 'BUL-' + m + '-' + e.id, mois: m, site: e.site || E.scope() || 'OWE', employe: e.id, nom: e.nom, poste: e.poste, direction: e.direction, categorie: e.categorie, entree: e.entree, cnss: e.cnss, parts: nb, salaireBase: e.salaire,
       lignes: L, gains: totGains, soumis: soumis, cnssBase: cnssB, cnssSal: cnssS, cnssPat: cnssP, cnamgsSal: camS, cnamgsPat: camP, cotSal: cnssS + camS, cotPat: cnssP + camP,
       imposable: imposable, irpp: ir, avances: avances, hs: hs, net: totGains - cnssS - camS - ir - avances, cout: totGains + cnssP + camP
     };
   }
   function eligibles(m) { var fin = finMois(m); return E.store.all('employes').filter(function (e) { return e.entree <= fin && e.statut !== 'Sorti' && e.salaire; }); }
   function generer(m) {
+    if (!E.scope()) { var all = []; SITES.forEach(function (st) { all = all.concat(E.withScope(st, function () { return generer(m); })); }); return all; }
     var prm = P(), vars = E.store.all('paie_variables').filter(function (v) { return v.mois === m; });
     var keep = E.store.all('paies').filter(function (b) { return b.mois !== m; });
     var out = eligibles(m).map(function (e) { return calcul(e, m, vars.filter(function (v) { return v.employe === e.id; }), prm); });
@@ -144,7 +185,7 @@
   }
   function initPaie() {
     enrich(); P();
-    if (E.store.all('paie_periodes').length) return;
+    if (E.store.raw('paie_periodes').length) return splitPeriods();
     var m2 = ym(-2), m1 = ym(-1), f2 = finMois(m2), f1 = finMois(m1);
     var aout = generer2(m2), sept = generer2(m1);
     var ta = totaux(aout), periods = [];
@@ -159,8 +200,8 @@
       { date: E.addDays(f2, 2) + 'T11:20:00', par: 'Moussounda Christelle', action: 'Période clôturée — virements exécutés' }, { date: E.addDays(f2, -3) + 'T16:05:00', par: 'Moussounda Christelle', action: 'Virements émis (' + aout.length + ' bénéficiaires)' },
       { date: E.addDays(f2, -4) + 'T15:30:00', par: 'Moussounda Christelle', action: 'Masse salariale validée par la DAF' }, { date: E.addDays(f2, -5) + 'T10:10:00', par: 'Mbina Aurélie', action: 'Contrôle RH validé' }, { date: E.addDays(f2, -10) + 'T09:00:00', par: 'Ngoua Béatrice', action: 'Éléments variables saisis' }] });
     periods.push({ id: m1, mois: m1, etape: 1, totaux: totaux(sept), historique: [{ date: E.addDays(f1, -5) + 'T17:40:00', par: 'Ngoua Béatrice', action: 'Préparation terminée — soumise au contrôle RH' }, { date: E.addDays(f1, -9) + 'T09:00:00', par: 'Ngoua Béatrice', action: 'Éléments variables saisis' }] });
-    E.store.set('paie_periodes', periods);
-    E.store.all('paies').forEach(function (b) { if (b.mois === m2) b.paye = true; }); E.store.save();
+    E.withScope('', function () { E.store.set('paie_periodes', periods); E.store.raw('paies').forEach(function (b) { if (b.mois === m2) b.paye = true; }); });
+    E.store.save(); splitPeriods();
   }
   function generer2(m) { return generer(m); }
 
@@ -190,37 +231,38 @@
   }
   function ouvrirSuivante(p) {
     var m = moisSuivant(p.mois);
-    if (E.store.get('paie_periodes', m)) return ui.toast('La période de ' + moisLabel(m) + ' existe déjà.', 'err');
+    if (periode(m)) return ui.toast('La période de ' + moisLabel(m) + ' existe déjà.', 'err');
     ui.confirm('Ouvrir la période', 'Ouvrir la paie de <b>' + moisLabel(m) + '</b> ? Les bulletins sont pré-calculés à partir des fiches du personnel (nouvelles embauches incluses).', 'Ouvrir', function () {
-      var np = { id: m, mois: m, etape: 0, totaux: {}, historique: [] }; hist(np, 'Période ouverte'); E.store.all('paie_periodes').push(np); E.store.save();
+      var np = { id: m, mois: m, site: E.scope() || 'OWE', split: true, etape: 0, totaux: {}, historique: [] }; hist(np, 'Période ouverte'); E.store.all('paie_periodes').push(np); E.store.save();
       generer(m); E.log('Période de paie ouverte', moisLabel(m), 'paie'); ui.toast('Période de ' + moisLabel(m) + ' ouverte'); E.go('paie/periode'); E.rerender();
     });
   }
   function ordreVirement(p, done) {
     var bs = bulletins(p.mois).sort(function (a, b) { return a.nom.localeCompare(b.nom); });
-    var html = '<div class="doc rh-doc">' + docHead('ORDRE DE VIREMENT DES SALAIRES', moisLabel(p.mois)) +
-      '<p>Donneur d\'ordre : Gabon Port Management — compte salaires ****7781. Date de valeur : <b>' + fmt.date(finMois(p.mois) > E.today() ? finMois(p.mois) : E.today()) + '</b>.</p>' +
+    var sg = sign();
+    var html = '<div class="doc rh-doc">' + docHead('ORDRE DE VIREMENT DES SALAIRES', moisLabel(p.mois) + (E.scope() ? ' · ' + SITE_L[E.scope()] : '')) +
+      '<p>Donneur d\'ordre : Gabon Port Management' + (E.scope() ? ' — ' + esc(E.space().court) : '') + ' — compte salaires ****' + sg.compte + '. Date de valeur : <b>' + fmt.date(finMois(p.mois) > E.today() ? finMois(p.mois) : E.today()) + '</b>.</p>' +
       '<table><thead><tr><th>Matricule</th><th>Bénéficiaire</th><th>Compte</th><th class="n">Montant</th></tr></thead><tbody>' + bs.map(function (b) { return '<tr><td>' + b.employe + '</td><td>' + esc(b.nom) + '</td><td>****' + String(1000 + hnum(b.employe) * 13).slice(-4) + '</td><td class="n">' + fmt.money(b.net) + '</td></tr>'; }).join('') +
       '<tr class="sub"><td colspan="3">Total — ' + bs.length + ' virements</td><td class="n">' + fmt.money(E.sum(bs, 'net')) + '</td></tr></tbody></table>' +
-      '<div class="sign"><div>La Directrice administrative et financière<br><b>Moussounda Christelle</b></div><div>Le Directeur général<br><b>Direction générale</b></div></div></div>';
+      '<div class="sign"><div>' + esc(sg.dafT) + '<br><b>' + esc(sg.daf) + '</b></div><div>Le Directeur général<br><b>Direction générale</b></div></div></div>';
     ui.modal({ title: 'Ordre de virement', sub: moisLabel(p.mois) + ' · ' + bs.length + ' bénéficiaires', size: 'lg', body: '<div class="rh-doc-wrap">' + html + '</div>',
       actions: [{ label: 'Annuler' }, { label: 'Imprimer', icon: 'print', onClick: function () { printDoc('Ordre de virement ' + p.mois, html); } }, { label: 'Confirmer l\'émission des virements', cls: 'success', icon: 'send', onClick: function (c) { c(); done(); } }] });
   }
 
   /* ------------------------------------------------------------ documents */
-  function docHead(titre, sous) {
-    return '<div class="doc__head"><div class="row" style="gap:14px"><img src="../assets/img/logo.png" alt="GPM"><div class="co"><b>Gabon Port Management</b><span>Opérateur des ports d\'Owendo et de Port-Gentil</span><span>Zone portuaire d\'Owendo — B.P. 394 Libreville</span><span>N° employeur CNSS : 0-00000-DEMO</span></div></div><div style="text-align:right"><h4>' + esc(titre) + '</h4><b>' + esc(sous) + '</b></div></div>';
+  function docHead(titre, sous, site) {
+    return '<div class="doc__head"><div class="row" style="gap:14px"><img src="../assets/img/logo.png" alt="GPM"><div class="co"><b>Gabon Port Management</b><span>Opérateur des ports d\'Owendo et de Port-Gentil</span><span>' + esc(sign(site).adr) + '</span><span>N° employeur CNSS : 0-00000-DEMO</span></div></div><div style="text-align:right"><h4>' + esc(titre) + '</h4><b>' + esc(sous) + '</b></div></div>';
   }
   function bulletinHTML(b) {
-    var p = E.store.get('paie_periodes', b.mois), mi = +b.mois.slice(5, 7);
+    var p = E.withScope(siteOfB(b), function () { return periode(b.mois); }), mi = +b.mois.slice(5, 7);
     var moisCumul = Math.max(1, mi - Math.max(0, (b.entree.slice(0, 4) === b.mois.slice(0, 4) ? +b.entree.slice(5, 7) - 1 : 0)));
     var n = function (v) { return v ? fmt.num(v) : ''; };
     var rows = b.lignes.map(function (x) { return '<tr><td>' + x.code + '</td><td>' + esc(x.lib) + '</td><td class="n">' + (typeof x.base === 'number' ? fmt.num(x.base) : esc(x.base || '')) + '</td><td class="n">' + esc(x.taux || '') + '</td><td class="n">' + (x.gain ? fmt.num(x.gain) : '') + '</td><td class="n">' + n(x.ret) + '</td><td class="n">' + (x.pat ? fmt.num(x.pat) + (x.tauxP ? '<br><span style="color:#888;font-size:10px">' + x.tauxP + '</span>' : '') : '') + '</td></tr>'; });
     var gainsIdx = b.lignes.filter(function (x) { return x.gain; }).length;
     rows.splice(gainsIdx, 0, '<tr class="sub"><td></td><td>TOTAL DES GAINS</td><td></td><td></td><td class="n">' + fmt.num(b.gains) + '</td><td></td><td></td></tr>');
-    return '<div class="doc rh-doc">' + docHead('BULLETIN DE PAIE', 'Période : ' + moisLabel(b.mois)) +
+    return '<div class="doc rh-doc">' + docHead('BULLETIN DE PAIE', 'Période : ' + moisLabel(b.mois), siteOfB(b)) +
       '<div class="two"><div class="box"><dl class="kv"><dt>Matricule</dt><dd>' + b.employe + '</dd><dt>N° CNSS</dt><dd>' + esc(b.cnss || '—') + '</dd><dt>Emploi</dt><dd>' + esc(b.poste) + '</dd><dt>Catégorie</dt><dd>' + esc(b.categorie) + '</dd></dl></div>' +
-      '<div class="box"><b style="font-size:14px">' + esc(b.nom) + '</b><dl class="kv" style="margin-top:6px"><dt>Direction</dt><dd>' + esc(E.dirName(b.direction)) + '</dd><dt>Date d\'entrée</dt><dd>' + fmt.date(b.entree) + '</dd><dt>Parts fiscales</dt><dd>' + fmt.num(b.parts, 1) + '</dd><dt>Paiement</dt><dd>Virement ****' + String(1000 + hnum(b.employe) * 13).slice(-4) + '</dd></dl></div></div>' +
+      '<div class="box"><b style="font-size:14px">' + esc(b.nom) + '</b><dl class="kv" style="margin-top:6px"><dt>Direction</dt><dd>' + esc(E.dirName(b.direction)) + '</dd><dt>Établissement</dt><dd>' + esc(E.siteName(siteOfB(b))) + '</dd><dt>Date d\'entrée</dt><dd>' + fmt.date(b.entree) + '</dd><dt>Parts fiscales</dt><dd>' + fmt.num(b.parts, 1) + '</dd><dt>Paiement</dt><dd>Virement ****' + String(1000 + hnum(b.employe) * 13).slice(-4) + '</dd></dl></div></div>' +
       '<table><thead><tr><th>Code</th><th>Rubrique</th><th class="n">Base</th><th class="n">Taux</th><th class="n">Gains</th><th class="n">Retenues</th><th class="n">Part patronale</th></tr></thead><tbody>' + rows.join('') +
       '<tr class="sub"><td></td><td>TOTAUX</td><td></td><td></td><td class="n">' + fmt.num(b.gains) + '</td><td class="n">' + fmt.num(b.cotSal + b.irpp + b.avances) + '</td><td class="n">' + fmt.num(b.cotPat) + '</td></tr></tbody></table>' +
       '<div class="net"><span>NET À PAYER</span><b>' + fmt.money(b.net) + '</b></div>' +
@@ -235,8 +277,8 @@
   /* ------------------------------------------------------------ vues */
   function header(view, active) {
     var p = courante();
-    view.innerHTML = '<div class="rh-head"><div><h2>Paie & rémunérations</h2><p>Période en cours : <b>' + (p ? moisLabel(p.mois) : '—') + '</b> · ' + (p ? ETAPES[p.etape] : '') + '</p></div><div class="rh-actions">' +
-      (p && p.etape <= 1 && isRH() ? '<button class="btn" data-a="var">' + icon('plus') + 'Élément variable</button>' : '') + '<a class="btn primary" href="#/paie/periode">' + icon('wallet') + 'Période en cours</a></div></div>' +
+    view.innerHTML = '<div class="rh-head"><div><h2>Paie & rémunérations' + (E.scope() ? ' · ' + esc(E.space().court) : ' · consolidée') + '</h2><p>Période en cours : <b>' + (p ? moisLabel(p.mois) : '—') + '</b> · ' + (p ? ETAPES[p.etape] : '') + '</p></div><div class="rh-actions">' +
+      (p && p.etape <= 1 && isRH() && E.scope() ? '<button class="btn" data-a="var">' + icon('plus') + 'Élément variable</button>' : '') + '<a class="btn primary" href="#/paie/periode">' + icon('wallet') + 'Période en cours</a></div></div>' +
       ui.tabs([{ k: 'tableau', l: 'Tableau de bord' }, { k: 'periode', l: 'Période en cours' }, { k: 'bulletins', l: 'Bulletins' }, { k: 'variables', l: 'Éléments variables', n: p ? E.store.all('paie_variables').filter(function (v) { return v.mois === p.mois; }).length : null }, { k: 'livre', l: 'Livre de paie' }, { k: 'declarations', l: 'Déclarations' }, { k: 'parametres', l: 'Paramètres' }], active, function (k) { E.go('paie/' + (k === 'tableau' ? '' : k)); }) + '<div id="pa-body"></div>';
     var b = view.querySelector('[data-a=var]'); if (b) b.onclick = function () { ajouterVariable(p); };
     return view.querySelector('#pa-body');
@@ -252,7 +294,7 @@
       ui.kpi({ label: 'Charges patronales', value: fmt.short(t.cotPat), unit: 'FCFA', icon: 'invoice', tone: 'orange', foot: 'Coût employeur ' + fmt.short(t.cout) + ' FCFA' }) +
       ui.kpi({ label: 'Effectif payé', value: t.effectif, icon: 'users', tone: 'violet', foot: ETAPES[p.etape] + (t.hs ? ' · HS ' + fmt.short(t.hs) : '') }) + '</div>';
     var last = ps.slice(-12);
-    html += '<div class="card" style="margin-bottom:16px"><div class="card__h"><h3>Circuit de la paie de ' + moisLabel(p.mois) + '</h3><a class="btn sm" style="margin-left:auto" href="#/paie/periode">Ouvrir ' + icon('arrow') + '</a></div><div class="card__b">' + wf(p) + '</div></div>';
+    html += p.virtual ? sitesCard(p) : '<div class="card" style="margin-bottom:16px"><div class="card__h"><h3>Circuit de la paie de ' + moisLabel(p.mois) + '</h3><a class="btn sm" style="margin-left:auto" href="#/paie/periode">Ouvrir ' + icon('arrow') + '</a></div><div class="card__b">' + wf(p) + '</div></div>';
     html += '<div class="grid g-2-1" style="margin-bottom:16px"><div class="card"><div class="card__h"><h3>Évolution de la masse salariale</h3><span class="sub">12 derniers mois · coût employeur</span></div><div class="card__b">' + ui.bars({ labels: last.map(function (x) { return moisCourt(x.mois); }), series: [{ name: 'Salaires (total des gains)', values: last.map(function (x) { return x.totaux.gains || 0; }), color: '#0f2d5c' }, { name: 'Charges patronales', values: last.map(function (x) { return x.totaux.cotPat || 0; }), color: '#f5c400' }], stacked: true, money: true, height: 230 }) + '<div class="small muted" style="margin-top:6px">Décembre inclut la gratification de fin d\'année.</div></div></div>';
     var rub = [['Salaire de base', ['100', '150']], ['Ancienneté', ['110']], ['Prime de quart', ['120']], ['Marée / pilotage', ['125']], ['Heures sup. (dont nuit)', ['130', '131', '132']], ['Logement', ['160']], ['Transport', ['170']], ['Primes', ['140', '141']]].map(function (r, i) { return { label: r[0], value: E.sum(bs, function (b) { return E.sum(b.lignes.filter(function (x) { return r[1].indexOf(x.code) >= 0; }), 'gain'); }), color: ui.PALETTE[i] }; }).filter(function (x) { return x.value > 0; });
     html += '<div class="card"><div class="card__h"><h3>Composition de la rémunération</h3></div><div class="card__b">' + ui.donut(rub, { money: true, center: fmt.short(t.gains), sub: 'FCFA de gains' }) + '</div></div></div>';
@@ -261,8 +303,18 @@
     html += '<div class="grid g2"><div class="card"><div class="card__h"><h3>Coût employeur par direction</h3><span class="sub">' + moisLabel(p.mois) + '</span></div><div class="card__b"><div class="rh-hbars">' + dirs.map(function (d) { return '<div class="rh-hbar"><span title="' + esc(d.l) + '">' + esc(d.l) + ' (' + d.n + ')</span><div><i style="width:' + (d.v / max * 100).toFixed(1) + '%"></i></div><b>' + fmt.short(d.v) + '</b></div>'; }).join('') + '</div></div></div>' +
       '<div class="card"><div class="card__h"><h3>Charges sociales et fiscales du mois</h3></div><div class="card__b"><div class="rh-decl">' + [['CNSS — part salariale', E.sum(bs, 'cnssSal')], ['CNSS — part patronale', E.sum(bs, 'cnssPat')], ['CNAMGS — part salariale', E.sum(bs, 'cnamgsSal')], ['CNAMGS — part patronale', E.sum(bs, 'cnamgsPat')], ['IRPP retenu à la source', t.irpp]].map(function (r) { return '<div class="rh-decl__row"><span>' + r[0] + '</span><b>' + fmt.money(r[1]) + '</b></div>'; }).join('') +
       '</div><div class="rh-total"><span>Total à reverser aux organismes</span><b>' + fmt.short(t.cotSal + t.cotPat + t.irpp) + ' FCFA</b></div><a class="btn sm" style="margin-top:12px" href="#/paie/declarations">' + icon('doc') + 'États déclaratifs</a></div></div></div>';
-    body.innerHTML = html;
+    body.innerHTML = html; bindSpaces(body);
   }
+  /* Vue globale : répartition de la paie entre les deux sites */
+  function sitesCard(p) {
+    var rows = SITES.map(function (st) { var x = (p.parts || {})[st]; return { st: st, x: x, t: x ? x.totaux || {} : {} }; });
+    return '<div class="card" style="margin-bottom:16px"><div class="card__h"><h3>Paie de ' + moisLabel(p.mois) + ' par site</h3><span class="sub">chaque site prépare et valide sa propre paie</span></div>' +
+      ui.table([{ label: 'Site', render: function (r) { return '<b>' + esc(E.SPACES[r.st].court) + '</b>'; } }, { label: 'Étape', render: function (r) { return r.x ? ui.badge(ETAPES[r.x.etape], r.x.etape === 4 ? 'green' : 'orange') : '<span class="muted small">Non ouverte</span>'; } },
+        { label: 'Effectif', num: true, render: function (r) { return fmt.num(r.t.effectif || 0); } }, { label: 'Masse salariale', num: true, render: function (r) { return fmt.money(r.t.gains || 0); } }, { label: 'Net à payer', num: true, render: function (r) { return fmt.money(r.t.net || 0); } }, { label: 'Coût employeur', num: true, render: function (r) { return fmt.money(r.t.cout || 0); } },
+        { label: 'Part', num: true, render: function (r) { return fmt.pct((r.t.gains || 0) / ((p.totaux || {}).gains || 1) * 100); } }, { label: '', render: function (r) { return '<button class="btn sm" data-space="' + r.st + '">Ouvrir l\'espace ' + icon('arrow') + '</button>'; } }], rows,
+        { footer: function () { var t = p.totaux || {}; return '<td colspan="2"><b>Total des deux sites</b></td><td class="num">' + fmt.num(t.effectif || 0) + '</td><td class="num">' + fmt.money(t.gains || 0) + '</td><td class="num">' + fmt.money(t.net || 0) + '</td><td class="num">' + fmt.money(t.cout || 0) + '</td><td class="num">100 %</td><td></td>'; } }) + '</div>';
+  }
+  function bindSpaces(root) { root.querySelectorAll('[data-space]').forEach(function (b) { b.onclick = function () { E.switchSpace(b.dataset.space); }; }); }
   function wf(p) {
     return '<div class="rh-wf">' + ETAPES.map(function (s, i) { var c = i < p.etape || p.etape === 4 ? 'done' : i === p.etape ? 'cur' : ''; var h = (p.historique || []).find(function (x) { return (i === 1 && /soumise au contrôle/i.test(x.action)) || (i === 2 && /Contrôle RH validé/.test(x.action)) || (i === 3 && /validée par la DAF/.test(x.action)) || (i === 4 && /clôturée/i.test(x.action)) || (i === 0 && /ouverte|variables/i.test(x.action)); }); return '<div class="rh-wf__s ' + c + '"><em>' + (c === 'done' ? '✓' : i + 1) + '</em><b>' + s + '</b><span>' + (h && c === 'done' ? fmt.dateShort(h.date) + ' · ' + esc(h.par.split(' ')[0]) : ETAPE_SUB[i]) + '</span></div>'; }).join('') + '</div>';
   }
@@ -270,19 +322,22 @@
   function renderPeriode(body) {
     var p = courante(), bs = bulletins(p.mois), t = totaux(bs);
     var acts = [], lock = '';
+    if (p.virtual) lock = '<div class="alert tone-blue" style="margin-top:14px">' + icon('info') + '<div><b>Vue consolidée des deux sites.</b> La paie se prépare, se contrôle et se valide dans l\'espace de chaque site (Libreville, Port-Gentil) ; les montants ci-dessous en sont la somme.</div></div>';
+    else {
     if (p.etape === 0 && isRH()) acts.push('<button class="btn" data-x="calc">' + icon('refresh') + 'Recalculer</button><button class="btn primary" data-x="next">' + icon('send') + 'Soumettre au contrôle RH</button>');
     if (p.etape === 1 && isRH()) acts.push('<button class="btn" data-x="calc">' + icon('refresh') + 'Recalculer</button><button class="btn danger" data-x="back">Renvoyer en préparation</button><button class="btn success" data-x="next">' + icon('check') + 'Valider le contrôle RH</button>');
     if (p.etape === 2) { if (isDAF()) acts.push('<button class="btn danger" data-x="back">Renvoyer en préparation</button><button class="btn success" data-x="next">' + icon('check') + 'Valider la masse salariale (DAF)</button>'); else lock = '<div class="rh-lock" style="margin-top:14px">' + icon('lock') + '<div><b>En attente de la Direction financière.</b> La validation de la masse salariale est réservée au profil Finance (DAF) ou à la Direction générale.</div></div>'; }
     if (p.etape === 3) { if (isDAF()) acts.push('<button class="btn success" data-x="next">' + icon('send') + 'Émettre les virements</button>'); else lock = '<div class="rh-lock" style="margin-top:14px">' + icon('lock') + '<div><b>Virements à émettre par la DAF.</b></div></div>'; }
     if (p.etape === 1 && !isRH()) lock = '<div class="rh-lock" style="margin-top:14px">' + icon('lock') + '<div><b>Contrôle en cours par les Ressources humaines.</b></div></div>';
     if (p.etape === 4 && isRH()) acts.push('<button class="btn primary" data-x="open">' + icon('plus') + 'Ouvrir la paie de ' + moisLabel(moisSuivant(p.mois)) + '</button>');
+    }
     acts.push('<button class="btn" data-x="livre">' + icon('download') + 'Livre de paie (CSV)</button>');
     var anomalies = [];
     bs.forEach(function (b) { if (b.net < 0.5 * b.gains * 0.6) anomalies.push(['orange', b.nom + ' : net inférieur à 30 % du total des gains', b]); if (b.hs > 0.25 * b.salaireBase) anomalies.push(['orange', b.nom + ' : heures supplémentaires > 25 % du salaire de base', b]); if (b.entree.slice(0, 7) === p.mois) anomalies.push(['blue', b.nom + ' : premier bulletin (entrée le ' + fmt.dateShort(b.entree) + (b.entree > p.mois + '-01' ? ', prorata appliqué' : '') + ')', b]); });
-    var prev = E.store.get('paie_periodes', (function () { var d = E.parseDate(p.mois + '-01'); d.setMonth(d.getMonth() - 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); })());
+    var prev = periode((function () { var d = E.parseDate(p.mois + '-01'); d.setMonth(d.getMonth() - 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); })());
     var nouveaux = bs.filter(function (b) { return !E.store.get('paies', 'BUL-' + (prev ? prev.mois : '') + '-' + b.employe); });
     if (prev && bulletins(prev.mois).length) nouveaux.forEach(function (b) { if (b.entree.slice(0, 7) !== p.mois) anomalies.push(['violet', b.nom + ' : nouveau dans la paie (embauche récente)', b]); });
-    body.innerHTML = '<div class="card" style="margin-bottom:16px"><div class="card__h"><h3>Paie de ' + moisLabel(p.mois) + '</h3>' + ui.badge(ETAPES[p.etape], p.etape === 4 ? 'green' : 'orange') + '</div><div class="card__b">' + wf(p) + lock + '<div class="rh-actions" style="margin-top:14px">' + acts.join('') + '</div>' +
+    body.innerHTML = (p.virtual ? sitesCard(p) : '') + '<div class="card" style="margin-bottom:16px"><div class="card__h"><h3>Paie de ' + moisLabel(p.mois) + '</h3>' + ui.badge(ETAPES[p.etape], p.etape === 4 ? 'green' : 'orange') + '</div><div class="card__b">' + wf(p) + lock + '<div class="rh-actions" style="margin-top:14px">' + acts.join('') + '</div>' +
       (p.etape >= 2 ? '<div class="small muted" style="margin-top:10px">' + icon('lock', '').replace('<svg', '<svg style="width:13px;vertical-align:-2px"') + ' Bulletins verrouillés depuis la validation RH : les éléments variables ne sont plus modifiables.</div>' : '') + '</div></div>' +
       '<div class="grid g4 rh-kpis">' + ui.kpi({ label: 'Total des gains', value: fmt.short(t.gains), unit: 'FCFA', icon: 'wallet', tone: 'blue' }) + ui.kpi({ label: 'Cotisations salariales + IRPP', value: fmt.short(t.cotSal + t.irpp), unit: 'FCFA', icon: 'invoice', tone: 'orange' }) + ui.kpi({ label: 'Net à payer', value: fmt.short(t.net), unit: 'FCFA', icon: 'money', tone: 'green' }) + ui.kpi({ label: 'Bulletins', value: bs.length, icon: 'doc', tone: 'violet', foot: anomalies.length + ' point(s) de contrôle' }) + '</div>' +
       '<div class="grid g-2-1"><div class="card"><div class="card__h"><h3>Bulletins du mois</h3><a class="btn sm" style="margin-left:auto" href="#/paie/bulletins">Tous les bulletins</a></div>' + ui.table(bulCols().slice(0, 6), bs.slice().sort(function (a, b) { return b.gains - a.gains; }).slice(0, 10), { onRow: voirBulletin, footer: function () { return '<td colspan="2">Total (' + bs.length + ' bulletins)</td><td class="num">' + fmt.num(t.gains) + '</td><td class="num">' + fmt.num(t.cotSal) + '</td><td class="num">' + fmt.num(t.irpp) + '</td><td class="num">' + fmt.num(t.net) + '</td>'; } }) + '</div>' +
@@ -291,6 +346,7 @@
     var map = { next: function () { avancer(p); }, back: function () { renvoyer(p); }, calc: function () { generer(p.mois); E.log('Recalcul de la paie', moisLabel(p.mois), 'paie'); ui.toast('Bulletins recalculés'); E.rerender(); }, open: function () { ouvrirSuivante(p); }, livre: function () { exportLivre(p.mois); } };
     body.querySelectorAll('[data-x]').forEach(function (b) { b.onclick = function () { map[b.dataset.x](); }; });
     body.querySelectorAll('[data-an]').forEach(function (el) { el.onclick = function () { voirBulletin(anomalies[+el.dataset.an][2]); }; });
+    bindSpaces(body);
   }
 
   function bulCols() {
@@ -305,7 +361,7 @@
     ];
   }
   var bulF = { mois: '', dir: '', q: '' };
-  function monthSelect(id, cur) { return '<select class="select" id="' + id + '">' + moisAvecBulletins().map(function (m) { var p = E.store.get('paie_periodes', m); return '<option value="' + m + '"' + (m === cur ? ' selected' : '') + '>' + moisLabel(m) + (p ? ' — ' + ETAPES[p.etape] : '') + '</option>'; }).join('') + '</select>'; }
+  function monthSelect(id, cur) { return '<select class="select" id="' + id + '">' + moisAvecBulletins().map(function (m) { var p = periode(m); return '<option value="' + m + '"' + (m === cur ? ' selected' : '') + '>' + moisLabel(m) + (p ? ' — ' + ETAPES[p.etape] : '') + '</option>'; }).join('') + '</select>'; }
   function renderBulletins(body) {
     bulF.mois = bulF.mois || courante().mois;
     body.innerHTML = '<div class="filters">' + monthSelect('bf-m', bulF.mois) + '<select class="select" id="bf-d"><option value="">Toutes les directions</option>' + E.options('directions').map(function (o) { return '<option value="' + o.v + '"' + (bulF.dir === o.v ? ' selected' : '') + '>' + esc(o.l) + '</option>'; }).join('') + '</select><input class="input" type="search" id="bf-q" placeholder="Nom ou matricule…" value="' + esc(bulF.q) + '"><span class="spacer"></span><button class="btn" id="bf-csv">' + icon('download') + 'Export CSV</button></div><div class="card" id="bf-res"></div>';
@@ -313,7 +369,7 @@
     var draw = function () {
       var q = E.norm(bulF.q);
       rows = bulletins(bulF.mois).filter(function (b) { return (!bulF.dir || b.direction === bulF.dir) && (!q || E.norm(b.nom + ' ' + b.employe).indexOf(q) >= 0); }).sort(function (a, b) { return a.nom.localeCompare(b.nom); });
-      var t = totaux(rows), p = E.store.get('paie_periodes', bulF.mois);
+      var t = totaux(rows), p = periode(bulF.mois);
       body.querySelector('#bf-res').innerHTML = '<div class="card__h"><h3>' + rows.length + ' bulletin(s) · ' + moisLabel(bulF.mois) + '</h3>' + (p ? ui.badge(p.etape === 4 ? 'Payé' : ETAPES[p.etape], p.etape === 4 ? 'green' : 'orange') : '') + '<span class="sub" style="margin-left:auto">cliquez une ligne pour ouvrir le bulletin</span></div>' +
         ui.table(bulCols(), rows, { onRow: voirBulletin, empty: 'Aucun bulletin', footer: function () { return '<td colspan="2">Total</td><td class="num">' + fmt.num(t.gains) + '</td><td class="num">' + fmt.num(t.cotSal) + '</td><td class="num">' + fmt.num(t.irpp) + '</td><td class="num">' + fmt.num(t.net) + '</td><td class="num">' + fmt.num(t.cout) + '</td>'; } });
     };
@@ -339,14 +395,14 @@
   }
   function renderVariables(body) {
     var p = courante(), vs = E.store.all('paie_variables').filter(function (v) { return v.mois === p.mois; });
-    var lockd = p.etape > 1;
+    var lockd = p.etape > 1 || !E.scope();
     var vt = function (t) { return VAR_TYPES.find(function (x) { return x.v === t; }) || { l: t, unit: '' }; };
     var cols = [{ label: 'Salarié', render: function (v) { return '<b>' + esc(E.empName(v.employe)) + '</b><div class="small muted">' + v.employe + '</div>'; }, csv: function (v) { return E.empName(v.employe); } }, { label: 'Rubrique', render: function (v) { return esc(vt(v.type).l); }, csv: function (v) { return vt(v.type).l; } }, { label: 'Quantité', num: true, render: function (v) { var u = vt(v.type).unit; return u === 'FCFA' ? fmt.money(v.quantite) : fmt.num(v.quantite) + ' ' + u; }, csv: function (v) { return v.quantite; } }, { label: 'Justification', render: function (v) { return esc(v.libelle || '—'); }, csv: function (v) { return v.libelle; } },
       { label: 'Impact net', num: true, render: function (v) { var b = E.store.get('paies', 'BUL-' + p.mois + '-' + v.employe); return b ? fmt.num(b.net) : '—'; }, csv: function () { return ''; } }, { label: '', render: function (v) { return lockd || !isRH() ? '' : '<button class="btn sm danger" data-del="' + v.id + '">' + icon('trash') + '</button>'; }, csv: function () { return ''; } }];
     var hs = E.sum(vs.filter(function (v) { return /^HS/.test(v.type); }), 'quantite');
     body.innerHTML = '<div class="grid g4 rh-kpis">' + ui.kpi({ label: 'Éléments saisis', value: vs.length, icon: 'list', tone: 'blue', foot: moisLabel(p.mois) }) + ui.kpi({ label: 'Heures supplémentaires', value: fmt.num(hs), unit: 'h', icon: 'clock', tone: 'orange', foot: fmt.short(totaux(bulletins(p.mois)).hs) + ' FCFA' }) +
       ui.kpi({ label: 'Mouvements de marée / pilotage', value: fmt.num(E.sum(vs.filter(function (v) { return v.type === 'MAREE'; }), 'quantite')), unit: 'mvt', icon: 'anchor', tone: 'green', foot: 'Primes exceptionnelles : ' + fmt.short(E.sum(vs.filter(function (v) { return v.type === 'PRIME' || v.type === 'REND'; }), 'quantite')) + ' FCFA' }) + ui.kpi({ label: 'Absences non rémunérées', value: E.sum(vs.filter(function (v) { return v.type === 'ABS'; }), 'quantite'), unit: 'j', icon: 'calendar', tone: 'red' }) + '</div>' +
-      (lockd ? '<div class="alert tone-grey" style="margin-bottom:14px">' + icon('lock') + '<div>Période en « ' + ETAPES[p.etape] + ' » : les éléments variables sont verrouillés.</div></div>' : '') +
+      (!E.scope() ? '<div class="alert tone-blue" style="margin-bottom:14px">' + icon('info') + '<div>Vue consolidée : les éléments variables se saisissent dans l\'espace de chaque site.</div></div>' : lockd ? '<div class="alert tone-grey" style="margin-bottom:14px">' + icon('lock') + '<div>Période en « ' + ETAPES[p.etape] + ' » : les éléments variables sont verrouillés.</div></div>' : '') +
       '<div class="card"><div class="card__h"><h3>Éléments variables · ' + moisLabel(p.mois) + '</h3>' + (!lockd && isRH() ? '<button class="btn sm primary" style="margin-left:auto" id="va-add">' + icon('plus') + 'Ajouter</button>' : '') + '</div>' + ui.table(cols, vs, { empty: 'Aucun élément variable ce mois-ci' }) + '</div>';
     var add = body.querySelector('#va-add'); if (add) add.onclick = function () { ajouterVariable(p); };
     body.querySelectorAll('[data-del]').forEach(function (b) { b.onclick = function () { E.store.remove('paie_variables', b.dataset.del); generer(p.mois); ui.toast('Élément supprimé, bulletins recalculés'); E.rerender(); }; });
@@ -370,7 +426,7 @@
 
   var declM = '';
   function declData(m) {
-    var bs = bulletins(m), p = E.store.get('paie_periodes', m), ech = moisSuivant(m) + '-15';
+    var bs = bulletins(m), p = periode(m), ech = moisSuivant(m) + '-15';
     var paid = p && p.etape === 4 && E.today() > ech;
     return { bs: bs, ech: ech, statut: paid ? 'Déclarée et payée' : p && p.etape === 4 ? 'À déclarer' : 'Paie non clôturée',
       cnss: { base: E.sum(bs, 'cnssBase'), sal: E.sum(bs, 'cnssSal'), pat: E.sum(bs, 'cnssPat') }, cnamgs: { base: E.sum(bs, 'soumis'), sal: E.sum(bs, 'cnamgsSal'), pat: E.sum(bs, 'cnamgsPat') }, irpp: { base: E.sum(bs, 'imposable'), montant: E.sum(bs, 'irpp') } };
@@ -382,11 +438,11 @@
     var rows = d.bs.slice().sort(function (a, b) { return a.employe.localeCompare(b.employe); }).map(function (b) { return kind === 'irpp' ? '<tr><td>' + b.employe + '</td><td>' + esc(b.nom) + '</td><td class="n">' + fmt.num(b.imposable) + '</td><td class="n">' + fmt.num(b.parts, 1) + '</td><td class="n">' + fmt.num(b.irpp) + '</td></tr>' : '<tr><td>' + b.employe + '</td><td>' + esc(b.nom) + '</td><td>' + esc(b.cnss || '') + '</td><td class="n">' + fmt.num(kind === 'cnss' ? b.cnssBase : b.soumis) + '</td><td class="n">' + fmt.num(kind === 'cnss' ? b.cnssSal : b.cnamgsSal) + '</td><td class="n">' + fmt.num(kind === 'cnss' ? b.cnssPat : b.cnamgsPat) + '</td></tr>'; }).join('');
     var x = d[kind], tot = kind === 'irpp' ? '<tr class="sub"><td colspan="2">Total</td><td class="n">' + fmt.num(x.base) + '</td><td></td><td class="n">' + fmt.num(x.montant) + '</td></tr>' : '<tr class="sub"><td colspan="3">Total</td><td class="n">' + fmt.num(x.base) + '</td><td class="n">' + fmt.num(x.sal) + '</td><td class="n">' + fmt.num(x.pat) + '</td></tr>';
     var total = kind === 'irpp' ? x.montant : x.sal + x.pat;
-    return '<div class="doc rh-doc">' + docHead(titre, moisLabel(m)) + '<p>' + (kind === 'cnss' ? 'Taux : ' + prm.cnssSal + ' % salarié, ' + prm.cnssPat + ' % employeur, plafond mensuel ' + fmt.money(prm.cnssPlafond) + '.' : kind === 'cnamgs' ? 'Taux : ' + prm.cnamgsSal + ' % salarié, ' + prm.cnamgsPat + ' % employeur.' : 'Impôt sur le revenu des personnes physiques retenu à la source — à reverser à la Direction générale des impôts.') + ' Échéance : <b>' + fmt.date(d.ech) + '</b>.</p>' +
+    return '<div class="doc rh-doc">' + docHead(titre, moisLabel(m) + (E.scope() ? ' · ' + SITE_L[E.scope()] : ' · consolidé')) + '<p>' + (kind === 'cnss' ? 'Taux : ' + prm.cnssSal + ' % salarié, ' + prm.cnssPat + ' % employeur, plafond mensuel ' + fmt.money(prm.cnssPlafond) + '.' : kind === 'cnamgs' ? 'Taux : ' + prm.cnamgsSal + ' % salarié, ' + prm.cnamgsPat + ' % employeur.' : 'Impôt sur le revenu des personnes physiques retenu à la source — à reverser à la Direction générale des impôts.') + ' Échéance : <b>' + fmt.date(d.ech) + '</b>.</p>' +
       '<table><thead><tr>' + head + '</tr></thead><tbody>' + rows + tot + '</tbody></table><div class="net"><span>MONTANT À REVERSER</span><b>' + fmt.money(total) + '</b></div><div class="foot">Barème de simulation, à paramétrer avec le cabinet social — document de démonstration.</div></div>';
   }
   function renderDeclarations(body) {
-    declM = declM || moisAvecBulletins().find(function (m) { var p = E.store.get('paie_periodes', m); return p && p.etape === 4; }) || courante().mois;
+    declM = declM || moisAvecBulletins().find(function (m) { var p = periode(m); return p && p.etape === 4; }) || courante().mois;
     var d = declData(declM);
     var card = function (kind, titre, org, lines, total, ic) {
       return '<div class="card"><div class="card__h"><div class="list__icon tone-blue">' + icon(ic) + '</div><div><h3>' + titre + '</h3><div class="sub">' + org + '</div></div><span style="margin-left:auto">' + ui.badge(d.statut, /payée/.test(d.statut) ? 'green' : /À déclarer/.test(d.statut) ? 'orange' : 'grey') + '</span></div><div class="card__b"><div class="rh-decl">' + lines.map(function (r) { return '<div class="rh-decl__row"><span>' + r[0] + '</span><b>' + fmt.money(r[1]) + '</b></div>'; }).join('') + '<div class="rh-decl__row"><span>Échéance</span><b>' + fmt.date(d.ech) + '</b></div></div><div class="rh-total"><span>À reverser</span><b>' + fmt.short(total) + ' FCFA</b></div>' +
@@ -402,10 +458,12 @@
     body.querySelectorAll('[data-dc]').forEach(function (b) { b.onclick = function () { var k = b.dataset.dc; ui.exportCSV('declaration-' + k + '-' + declM, k === 'irpp' ? [{ label: 'Matricule', key: 'employe' }, { label: 'Nom', key: 'nom' }, { label: 'Net imposable', key: 'imposable' }, { label: 'Parts', key: 'parts' }, { label: 'IRPP', key: 'irpp' }] : [{ label: 'Matricule', key: 'employe' }, { label: 'Nom', key: 'nom' }, { label: 'N° CNSS', key: 'cnss' }, { label: 'Assiette', key: k === 'cnss' ? 'cnssBase' : 'soumis' }, { label: 'Part salariale', key: k === 'cnss' ? 'cnssSal' : 'cnamgsSal' }, { label: 'Part patronale', key: k === 'cnss' ? 'cnssPat' : 'cnamgsPat' }], d.bs); }; });
   }
 
+  /* recalcule la période en préparation de chaque site concerné (espace actif, ou les deux en vue globale) */
+  function recalc() { var n = 0; (E.scope() ? [E.scope()] : SITES).forEach(function (st) { E.withScope(st, function () { var c = courante(); if (c && c.etape <= 1) { generer(c.mois); n++; } }); }); return n; }
   function renderParametres(body) {
     var p = P(), can = isRH() || isDAF();
     var f = function (name, label, val, unit, step) { return '<div class="field"><label for="pp_' + name + '">' + esc(label) + (unit ? ' (' + unit + ')' : '') + '</label><input class="input" type="number" step="' + (step || 'any') + '" id="pp_' + name + '" data-k="' + name + '" value="' + val + '"' + (can ? '' : ' disabled') + '></div>'; };
-    body.innerHTML = '<div class="rh-note" style="margin-bottom:14px">' + icon('alert') + '<span><b>Barème de simulation, à paramétrer avec le cabinet social.</b> Les taux ci-dessous servent à la démonstration ; en production ils sont validés par le cabinet social et versionnés par date d\'effet.</span></div>' +
+    body.innerHTML = '<div class="rh-note" style="margin-bottom:14px">' + icon('alert') + '<span><b>Barème de simulation, à paramétrer avec le cabinet social.</b> Paramètres communs aux deux sites (Owendo et Port-Gentil). Les taux ci-dessous servent à la démonstration ; en production ils sont validés par le cabinet social et versionnés par date d\'effet.</span></div>' +
       '<div class="grid g2"><div class="card"><div class="card__h"><h3>Cotisations sociales</h3></div><div class="card__b"><div class="rh-param">' + f('cnssSal', 'CNSS salarié', p.cnssSal, '%') + f('cnssPat', 'CNSS employeur', p.cnssPat, '%') + f('cnssPlafond', 'Plafond mensuel CNSS', p.cnssPlafond, 'FCFA', 1000) + f('cnamgsSal', 'CNAMGS salarié', p.cnamgsSal, '%') + f('cnamgsPat', 'CNAMGS employeur', p.cnamgsPat, '%') + f('abattement', 'Abattement frais professionnels (IRPP)', p.abattement, '%') + '</div></div></div>' +
       '<div class="card"><div class="card__h"><h3>Primes et indemnités</h3></div><div class="card__b"><div class="rh-param">' + f('ancTaux', 'Ancienneté : taux par année', p.ancTaux, '%') + f('ancSeuil', 'Ancienneté : à partir de', p.ancSeuil, 'ans', 1) + f('ancPlafond', 'Ancienneté : plafond', p.ancPlafond, '%') + f('quartTaux', 'Prime de quart (personnel posté)', p.quartTaux, '%') + f('mareeTaux', 'Prime de marée / pilotage : par mouvement', p.mareeTaux != null ? p.mareeTaux : DEF.mareeTaux, 'FCFA', 500) + f('hsNuitTaux', 'Majoration des heures sup. de nuit', p.hsNuitTaux != null ? p.hsNuitTaux : DEF.hsNuitTaux, '%') + f('transport', 'Prime de transport', p.transport, 'FCFA', 1000) + f('heuresMois', 'Heures mensuelles de référence', p.heuresMois, 'h') + '</div>' +
       '<h4 style="margin:16px 0 8px;font-size:13px">Indemnité de logement par catégorie (FCFA)</h4><div class="rh-param">' + Object.keys(p.logement).map(function (k) { return '<div class="field"><label>' + esc(k) + '</label><input class="input" type="number" step="1000" data-log="' + esc(k) + '" value="' + p.logement[k] + '"' + (can ? '' : ' disabled') + '></div>'; }).join('') + '</div></div></div></div>' +
@@ -419,10 +477,10 @@
       body.querySelectorAll('[data-b]').forEach(function (i) { p.bareme[+i.dataset.b][0] = +i.value; });
       body.querySelectorAll('[data-t]').forEach(function (i) { p.bareme[+i.dataset.t][1] = +i.value; });
       E.store.save(); E.log('Paramètres de paie modifiés', '', 'paie');
-      var c = courante(); if (c && c.etape <= 1) { generer(c.mois); ui.toast('Paramètres enregistrés — paie de ' + moisLabel(c.mois) + ' recalculée'); } else ui.toast('Paramètres enregistrés (s\'appliqueront à la prochaine période)');
+      var n = recalc(); ui.toast(n ? 'Paramètres enregistrés — paie en préparation recalculée (' + n + ' site(s))' : 'Paramètres enregistrés (s\'appliqueront à la prochaine période)');
       E.rerender();
     };
-    body.querySelector('#pp-reset').onclick = function () { ui.confirm('Rétablir les paramètres', 'Revenir aux valeurs de démonstration ?', 'Rétablir', function () { var d = E.clone(DEF); Object.keys(d).forEach(function (k) { p[k] = d[k]; }); E.store.save(); var c = courante(); if (c && c.etape <= 1) generer(c.mois); ui.toast('Paramètres rétablis'); E.rerender(); }); };
+    body.querySelector('#pp-reset').onclick = function () { ui.confirm('Rétablir les paramètres', 'Revenir aux valeurs de démonstration ?', 'Rétablir', function () { var d = E.clone(DEF); Object.keys(d).forEach(function (k) { p[k] = d[k]; }); E.store.save(); recalc(); ui.toast('Paramètres rétablis'); E.rerender(); }); };
   }
 
   E.register({
@@ -439,9 +497,11 @@
     },
     summary: function () {
       var p = courante(); if (!p) return [];
-      return [{ label: 'Masse salariale · ' + moisCourt(p.mois), value: fmt.short(p.totaux.gains || 0), icon: 'wallet', tone: 'green', foot: 'Paie : ' + ETAPES[p.etape].toLowerCase() + ' · ' + (p.totaux.effectif || 0) + ' salariés', href: '#/paie/periode' }];
+      var rep = p.virtual ? ' · ' + SITES.map(function (st) { var x = (p.parts || {})[st]; return SITE_L[st] + ' ' + fmt.short(x ? x.totaux.gains || 0 : 0); }).join(' / ') : '';
+      return [{ label: 'Masse salariale · ' + moisCourt(p.mois), value: fmt.short(p.totaux.gains || 0), icon: 'wallet', tone: 'green', foot: 'Paie : ' + ETAPES[p.etape].toLowerCase() + ' · ' + (p.totaux.effectif || 0) + ' salariés' + rep, href: '#/paie/periode' }];
     },
     pending: function (u) {
+      if (!E.scope()) { var all = []; SITES.forEach(function (st) { E.withScope(st, function () { (E.mod('paie').pending(u) || []).forEach(function (x) { x.title = x.title.replace('Paie de ', 'Paie ' + SITE_L[st] + ' de '); all.push(x); }); }); }); return all; }
       var p = courante(); if (!p || p.etape >= 4) return [];
       var mine = (p.etape <= 1 && (u.profile === 'rh' || u.profile === 'admin')) || (p.etape >= 2 && (u.profile === 'finance' || u.profile === 'admin'));
       if (!mine) return [];
@@ -451,6 +511,6 @@
       var p = courante(); if (!p) return [];
       return bulletins(p.mois).filter(function (b) { return E.norm(b.nom + ' ' + b.employe).indexOf(q) >= 0; }).map(function (b) { return { title: 'Bulletin ' + b.nom, sub: moisLabel(b.mois) + ' · net ' + fmt.money(b.net), href: '#/paie/bulletins/' + b.id }; });
     },
-    badge: function () { var p = courante(), u = user(); if (!p || p.etape >= 4) return 0; return ((p.etape <= 1 && (u.profile === 'rh' || u.profile === 'admin')) || (p.etape >= 2 && (u.profile === 'finance' || u.profile === 'admin'))) ? 1 : 0; }
+    badge: function () { if (!E.scope()) return SITES.reduce(function (n, st) { return n + E.withScope(st, function () { return E.mod('paie').badge(); }); }, 0); var p = courante(), u = user(); if (!p || p.etape >= 4) return 0; return ((p.etape <= 1 && (u.profile === 'rh' || u.profile === 'admin')) || (p.etape >= 2 && (u.profile === 'finance' || u.profile === 'admin'))) ? 1 : 0; }
   });
 })();

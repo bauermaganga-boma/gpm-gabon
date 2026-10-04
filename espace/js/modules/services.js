@@ -47,13 +47,16 @@
   function esca(id) { return S.get('escales', id); }
   function navire(s) { var e = esca(s.escale); return e ? e.navire : s.escale || '—'; }
   function siteCourt(id) { return id === 'POG' ? 'Port-Gentil' : 'Owendo'; }
+  /* Espace actif : site imposé en espace de site, filtre libre en vue globale (DG) */
+  function cs() { return E.scope() || state.site; }
+  function ws(id) { return E.scope() ? '' : ' · ' + siteCourt(id); }
   function posteCourt(id) { var p = S.get('postes', id); return p ? p.nom.replace('Owendo · ', '').replace('Port-Gentil · ', '') : id || '—'; }
   function flotte(id) { return S.get('flotte', id); }
   function moyNom(id) { var f = flotte(id); return f ? f.nom : id; }
   function pilotes(site) { return S.all('employes').filter(function (e) { return e.direction === 'MAR' && e.poste === 'Pilote maritime' && (!site || e.site === site); }); }
   function moyensDispo(site, types) { return S.all('flotte').filter(function (f) { return (!site || f.site === site) && (!types || types.indexOf(f.type) >= 0); }); }
   function empId(prefix) { var e = S.all('employes').find(function (x) { return x.nom.indexOf(prefix) === 0; }); return e ? e.id : ''; }
-  function nextId() { var n = Math.max.apply(null, srvs().map(function (x) { var m = String(x.id).match(/(\d+)$/); return m ? +m[1] : 0; }).concat([300])) + 1; return 'OS-2026-' + String(n).padStart(4, '0'); }
+  function nextId() { var n = Math.max.apply(null, S.raw('services').map(function (x) { var m = String(x.id).match(/(\d+)$/); return m ? +m[1] : 0; }).concat([300])) + 1; return 'OS-2026-' + String(n).padStart(4, '0'); }
   function addHisto(s, txt) { s.histo = s.histo || []; s.histo.push({ at: nowISO(), txt: txt, user: user() }); }
   function badge(st) { return U.badge(st, ST_TONE[st] || 'grey'); }
   function tIcon(t, sz) { return E.icon(T_ICON[t] || 'info').replace('<svg ', '<svg style="width:' + (sz || 15) + 'px;height:' + (sz || 15) + 'px" '); }
@@ -62,7 +65,7 @@
   function srvs() { return S.all('services'); }
   function startMs(s) { return ms(s.debut || s.heure); }
   function endMs(s) { if (s.fin) return ms(s.fin); var st = startMs(s), d = (s.duree || DUREE[s.type] || 60) * 6e4; if (s.statut === 'En cours') return Math.max(st + d, Date.now()); return st + d; }
-  function onDay(d) { return srvs().filter(function (s) { return String(s.heure).slice(0, 10) === d && (!state.site || s.site === state.site); }); }
+  function onDay(d) { return srvs().filter(function (s) { return String(s.heure).slice(0, 10) === d && (!cs() || s.site === cs()); }); }
   function actif(s) { return ['Demandé', 'Planifié', 'En cours'].indexOf(s.statut) >= 0; }
   function late(s) { return (s.statut === 'Planifié' || s.statut === 'Demandé') && ms(s.heure) < Date.now() - 30 * 6e4; }
   function ressources(s) { return (s.pilote ? [s.pilote] : []).concat(s.moyens || []); }
@@ -176,14 +179,14 @@
     else if (p0 && S.get('services', p0)) openId = p0;
     else if (p0 && TABS.some(function (t) { return t.k === p0; })) state.tab = p0;
     if (openId) state.day = String(S.get('services', openId).heure).slice(0, 10);
-    var d = state.day, list = onDay(d), conf = conflitsListe().filter(function (c) { return (!state.site || c.a.site === state.site); });
+    var d = state.day, list = onDay(d), conf = conflitsListe().filter(function (c) { return (!cs() || c.a.site === cs()); });
     var mvts = list.filter(function (s) { return s.type === 'Pilotage' && s.statut !== 'Annulé'; });
     var rem = list.filter(function (s) { return s.type === 'Remorquage' && s.statut !== 'Annulé'; });
     var eau = list.filter(function (s) { return s.type === 'Avitaillement en eau' && s.statut !== 'Annulé'; });
-    var dem = srvs().filter(function (s) { return s.statut === 'Demandé' && (!state.site || s.site === state.site); });
+    var dem = srvs().filter(function (s) { return s.statut === 'Demandé' && (!cs() || s.site === cs()); });
     var head =
       '<div class="srv-bar"><div class="srv-daynav"><button class="btn icon" id="sv-prev" aria-label="Jour précédent">' + E.icon('back') + '</button><div><b>' + dayRel(d) + '</b><span>' + (E.daysBetween(E.today(), d) >= -1 && E.daysBetween(E.today(), d) <= 1 ? dayLong(d) : '') + '</span></div><button class="btn icon" id="sv-next" aria-label="Jour suivant">' + E.icon('arrow') + '</button>' + (d !== E.today() ? '<button class="btn sm ghost" id="sv-today">Aujourd\'hui</button>' : '') + '</div>' +
-      '<div class="chips" id="sv-site">' + [['', 'Tous les ports'], ['OWE', 'Owendo'], ['POG', 'Port-Gentil']].map(function (c) { return '<button class="chip' + (state.site === c[0] ? ' is-active' : '') + '" data-k="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div><span class="spacer"></span>' +
+      (E.scope() ? '' : '<div class="chips" id="sv-site">' + [['', 'Tous les ports'], ['OWE', 'Owendo'], ['POG', 'Port-Gentil']].map(function (c) { return '<button class="chip' + (state.site === c[0] ? ' is-active' : '') + '" data-k="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div>') + '<span class="spacer"></span>' +
       '<button class="btn primary" id="sv-new">' + E.icon('plus') + 'Nouvel ordre de service</button></div>' +
       '<div class="grid g4 srv-kpis">' +
         U.kpi({ label: 'Mouvements de navires', value: mvts.length, icon: 'compass', tone: 'blue', foot: mvts.filter(function (s) { return s.mouvement === 'Entrée'; }).length + ' entrées · ' + mvts.filter(function (s) { return s.mouvement === 'Sortie'; }).length + ' sorties · ' + mvts.filter(function (s) { return s.mouvement === 'Déhalage'; }).length + ' déhalages' }) +
@@ -196,7 +199,7 @@
     view.querySelector('#sv-prev').onclick = function () { state.day = E.addDays(state.day, -1); E.rerender(); };
     view.querySelector('#sv-next').onclick = function () { state.day = E.addDays(state.day, 1); E.rerender(); };
     var t = view.querySelector('#sv-today'); if (t) t.onclick = function () { state.day = E.today(); E.rerender(); };
-    view.querySelector('#sv-site').addEventListener('click', function (ev) { var b = ev.target.closest('.chip'); if (b) { state.site = b.dataset.k; E.rerender(); } });
+    var svSite = view.querySelector('#sv-site'); if (svSite) svSite.addEventListener('click', function (ev) { var b = ev.target.closest('.chip'); if (b) { state.site = b.dataset.k; E.rerender(); } });
     view.querySelector('#sv-new').onclick = function () { osForm(null, {}); };
     var body = view.querySelector('#sv-body');
     ({ jour: vJour, planning: vPlanning, ordres: vOrdres })[state.tab](body);
@@ -237,11 +240,11 @@
   function vJour(el) {
     var list = onDay(state.day).filter(function (s) { return s.statut !== 'Annulé'; }), groups = {};
     list.forEach(function (s) { (groups[s.escale] = groups[s.escale] || []).push(s); });
-    var rows = Object.keys(groups).map(function (k) { var e = esca(k); return { label: e ? e.navire : k, sub: e ? posteCourt(e.poste) + ' · ' + siteCourt(e.site) : '', items: groups[k], t: Math.min.apply(null, groups[k].map(startMs)) }; }).sort(function (a, b) { return a.t - b.t; });
-    var conf = conflitsListe().filter(function (c) { return String(c.a.heure).slice(0, 10) === state.day || String(c.b.heure).slice(0, 10) === state.day; }).filter(function (c) { return !state.site || c.a.site === state.site; });
+    var rows = Object.keys(groups).map(function (k) { var e = esca(k); return { label: e ? e.navire : k, sub: e ? posteCourt(e.poste) + ws(e.site) : '', items: groups[k], t: Math.min.apply(null, groups[k].map(startMs)) }; }).sort(function (a, b) { return a.t - b.t; });
+    var conf = conflitsListe().filter(function (c) { return String(c.a.heure).slice(0, 10) === state.day || String(c.b.heure).slice(0, 10) === state.day; }).filter(function (c) { return !cs() || c.a.site === cs(); });
     var agenda = list.slice().sort(function (a, b) { return startMs(a) - startMs(b); });
     var nowT = Date.now(), nextIdx = agenda.findIndex(function (s) { return startMs(s) >= nowT; });
-    var fl = moyensDispo(state.site, ['Remorqueur', 'Vedette de pilotage', 'Vedette d\'amarrage']);
+    var fl = moyensDispo(cs(), ['Remorqueur', 'Vedette de pilotage', 'Vedette d\'amarrage']);
     el.innerHTML =
       '<div class="card"><div class="card__h"><h3>Timeline des mouvements</h3><span class="sub">' + list.length + ' ordre(s) · cliquez sur un bloc pour ouvrir l\'ordre</span></div>' + timeline(rows) + '<div class="card__b">' + legend() + '</div></div>' +
       '<div class="grid g-2-1" style="margin-top:16px">' +
@@ -256,7 +259,7 @@
             (conf.length ? '<div class="list">' + conf.map(function (c) { return '<div class="list__item"><div class="list__icon tone-red">' + E.icon('alert') + '</div><div class="list__body"><b>' + esc(c.nom) + '</b><div class="small muted">' + esc(c.a.id) + ' ' + T_SHORT[c.a.type] + ' ' + esc(navire(c.a)) + ' à ' + fh(c.a.heure) + '<br>' + esc(c.b.id) + ' ' + T_SHORT[c.b.type] + ' ' + esc(navire(c.b)) + ' à ' + fh(c.b.heure) + '</div><button class="btn sm" style="margin-top:6px" data-plan="' + c.b.id + '">' + E.icon('calendar') + 'Replanifier ' + esc(c.b.id) + '</button></div></div>'; }).join('') + '</div>' : '<div class="empty">' + E.icon('check') + '<div>Aucun conflit sur les pilotes et moyens nautiques.</div></div>') + '</div>' +
           '<div class="card"><div class="card__h"><h3>Moyens nautiques</h3><span class="spacer"></span><button class="btn sm ghost" id="sv-goplan">Planning</button></div><div class="list">' +
             fl.map(function (f) { var busy = srvs().find(function (s) { return actif(s) && (s.moyens || []).indexOf(f.id) >= 0 && startMs(s) <= Date.now() && endMs(s) >= Date.now(); }); var nxt = srvs().filter(function (s) { return actif(s) && (s.moyens || []).indexOf(f.id) >= 0 && startMs(s) > Date.now(); }).sort(function (a, b) { return startMs(a) - startMs(b); })[0]; var off = INDISPO.indexOf(f.statut) >= 0;
-              return '<div class="list__item"><div class="list__icon ' + (off ? 'tone-red' : busy ? 'tone-blue' : 'tone-green') + '">' + E.icon(f.type === 'Remorqueur' ? 'tug' : 'ship') + '</div><div class="list__body"><b>' + esc(f.nom) + '</b><div class="small muted">' + esc(f.type) + ' · ' + siteCourt(f.site) + (nxt ? ' · prochain : ' + fdt(nxt.heure) : '') + '</div></div>' + (off ? U.badge(f.statut, 'red') : busy ? U.badge('En mission', 'blue') : U.badge('Disponible', 'green')) + '</div>'; }).join('') + '</div></div>' +
+              return '<div class="list__item"><div class="list__icon ' + (off ? 'tone-red' : busy ? 'tone-blue' : 'tone-green') + '">' + E.icon(f.type === 'Remorqueur' ? 'tug' : 'ship') + '</div><div class="list__body"><b>' + esc(f.nom) + '</b><div class="small muted">' + esc(f.type) + ws(f.site) + (nxt ? ' · prochain : ' + fdt(nxt.heure) : '') + '</div></div>' + (off ? U.badge(f.statut, 'red') : busy ? U.badge('En mission', 'blue') : U.badge('Disponible', 'green')) + '</div>'; }).join('') + '</div></div>' +
         '</div>' +
       '</div>';
     wireBlocks(el); wireQuick(el);
@@ -275,23 +278,23 @@
   function vPlanning(el) {
     var d = state.day, list = srvs().filter(function (s) { return String(s.heure).slice(0, 10) === d && s.statut !== 'Annulé'; });
     var rows = [{ grp: 'Pilotes maritimes' }];
-    pilotes(state.site).forEach(function (p) { rows.push({ label: p.nom, sub: 'Pilote · ' + siteCourt(p.site), items: list.filter(function (s) { return s.pilote === p.id; }) }); });
+    pilotes(cs()).forEach(function (p) { rows.push({ label: p.nom, sub: 'Pilote' + ws(p.site), items: list.filter(function (s) { return s.pilote === p.id; }) }); });
     rows.push({ grp: 'Remorqueurs & vedettes' });
-    moyensDispo(state.site, ['Remorqueur', 'Vedette de pilotage', 'Vedette d\'amarrage']).forEach(function (f) { rows.push({ label: f.nom, sub: f.type + ' · ' + siteCourt(f.site), items: list.filter(function (s) { return (s.moyens || []).indexOf(f.id) >= 0; }), off: INDISPO.indexOf(f.statut) >= 0 ? f.statut : '' }); });
-    var nonAff = list.filter(function (s) { return s.statut === 'Demandé' && (!state.site || s.site === state.site); });
+    moyensDispo(cs(), ['Remorqueur', 'Vedette de pilotage', 'Vedette d\'amarrage']).forEach(function (f) { rows.push({ label: f.nom, sub: f.type + ws(f.site), items: list.filter(function (s) { return (s.moyens || []).indexOf(f.id) >= 0; }), off: INDISPO.indexOf(f.statut) >= 0 ? f.statut : '' }); });
+    var nonAff = list.filter(function (s) { return s.statut === 'Demandé' && (!cs() || s.site === cs()); });
     var html = '', chunk = [];
     function flush(title) { if (chunk.length) html += timeline(chunk, { title: title, blockLabel: function (s) { return fh(s.heure) + ' ' + navire(s).replace(/^(MV|MT|PSV) /, ''); } }); chunk = []; }
     var curTitle = '';
     rows.forEach(function (r) { if (r.grp) { flush(curTitle); curTitle = r.grp; html += '<div class="srv-grp">' + esc(r.grp) + '</div>'; } else chunk.push(r); });
     flush(curTitle);
-    var charge = pilotes(state.site).map(function (p) { var l = list.filter(function (s) { return s.pilote === p.id; }); return { p: p, n: l.length, m: sum(l, 'duree') }; });
+    var charge = pilotes(cs()).map(function (p) { var l = list.filter(function (s) { return s.pilote === p.id; }); return { p: p, n: l.length, m: sum(l, 'duree') }; });
     el.innerHTML =
       '<div class="card"><div class="card__h"><h3>Planning des pilotes et des moyens nautiques</h3><span class="sub">' + dayLong(d) + ' · disponibilités et conflits horaires</span></div>' + html + '<div class="card__b">' + legend() + '</div></div>' +
       '<div class="grid g2 stack-m" style="margin-top:16px">' +
         '<div class="card"><div class="card__h"><h3>Ordres non affectés</h3><span class="badge ' + (nonAff.length ? 'tone-orange' : 'tone-green') + '">' + nonAff.length + '</span></div>' +
-          (nonAff.length ? '<div class="list">' + nonAff.sort(function (a, b) { return startMs(a) - startMs(b); }).map(function (s) { return '<div class="list__item"><div class="list__icon" style="background:' + T_COL[s.type] + '1a;color:' + T_COL[s.type] + '">' + tIcon(s.type, 17) + '</div><div class="list__body"><b>' + fh(s.heure) + ' · ' + esc(T_SHORT[s.type]) + ' ' + esc(s.type !== 'Avitaillement en eau' ? s.mouvement.toLowerCase() : '') + ' — ' + esc(navire(s)) + '</b><div class="small muted"><span class="mono">' + esc(s.id) + '</span> · ' + siteCourt(s.site) + '</div></div><button class="btn sm primary" data-q="plan" data-id="' + s.id + '">Affecter</button></div>'; }).join('') + '</div>' : '<div class="empty">' + E.icon('check') + '<div>Tous les ordres du jour sont affectés.</div></div>') + '</div>' +
+          (nonAff.length ? '<div class="list">' + nonAff.sort(function (a, b) { return startMs(a) - startMs(b); }).map(function (s) { return '<div class="list__item"><div class="list__icon" style="background:' + T_COL[s.type] + '1a;color:' + T_COL[s.type] + '">' + tIcon(s.type, 17) + '</div><div class="list__body"><b>' + fh(s.heure) + ' · ' + esc(T_SHORT[s.type]) + ' ' + esc(s.type !== 'Avitaillement en eau' ? s.mouvement.toLowerCase() : '') + ' — ' + esc(navire(s)) + '</b><div class="small muted"><span class="mono">' + esc(s.id) + '</span>' + ws(s.site) + '</div></div><button class="btn sm primary" data-q="plan" data-id="' + s.id + '">Affecter</button></div>'; }).join('') + '</div>' : '<div class="empty">' + E.icon('check') + '<div>Tous les ordres du jour sont affectés.</div></div>') + '</div>' +
         '<div class="card"><div class="card__h"><h3>Charge des pilotes</h3><span class="sub">' + dayRel(d) + '</span></div><div class="card__b stack">' +
-          charge.map(function (c) { return '<div><div class="row small" style="justify-content:space-between"><span><b>' + esc(c.p.nom) + '</b> · ' + siteCourt(c.p.site) + '</span><span>' + c.n + ' mouvement(s) · ' + hmDur(c.m) + '</span></div>' + U.progress(Math.min(100, c.m / 480 * 100), c.m > 420 ? 'orange' : '') + '</div>'; }).join('') +
+          charge.map(function (c) { return '<div><div class="row small" style="justify-content:space-between"><span><b>' + esc(c.p.nom) + '</b>' + ws(c.p.site) + '</span><span>' + c.n + ' mouvement(s) · ' + hmDur(c.m) + '</span></div>' + U.progress(Math.min(100, c.m / 480 * 100), c.m > 420 ? 'orange' : '') + '</div>'; }).join('') +
           '<div class="small muted">Référence : 8 h de pilotage effectif par jour et par pilote (démonstration).</div></div></div>' +
       '</div>';
     wireBlocks(el); wireQuick(el);
@@ -310,7 +313,7 @@
     ];
   }
   function vOrdres(el) {
-    var list = srvs().filter(function (s) { return (!state.site || s.site === state.site) && (!state.fType || s.type === state.fType) && (!state.fSt || s.statut === state.fSt); }).sort(function (a, b) { return String(b.heure).localeCompare(String(a.heure)); });
+    var list = srvs().filter(function (s) { return (!cs() || s.site === cs()) && (!state.fType || s.type === state.fType) && (!state.fSt || s.statut === state.fSt); }).sort(function (a, b) { return String(b.heure).localeCompare(String(a.heure)); });
     var c = cols();
     el.innerHTML = '<div class="card"><div class="card__h"><h3>Ordres de service</h3><span class="sub">' + list.length + ' ordre(s)</span><span class="spacer"></span><button class="btn sm" id="sv-csv">' + E.icon('download') + 'Export CSV</button></div>' +
       '<div class="card__b" style="padding-bottom:0"><div class="filters"><div class="chips" id="sv-ft">' + [['', 'Tous']].concat(TYPES.map(function (t) { return [t, T_SHORT[t]]; })).map(function (x) { return '<button class="chip' + (state.fType === x[0] ? ' is-active' : '') + '" data-k="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>' +
@@ -416,7 +419,7 @@
     f.addEventListener('change', live); f.addEventListener('input', live); live();
   }
   function osForm(s, preset) {
-    var esOpts = S.all('escales').filter(function (e) { return e.statut !== 'Appareillé' && e.statut !== 'Annulée' && (!state.site || e.site === state.site || e.id === preset.escale); }).sort(function (a, b) { return String(a.eta).localeCompare(String(b.eta)); }).map(function (e) { return { v: e.id, l: e.navire + ' · ' + posteCourt(e.poste) + ' · ' + e.statut + ' · ETA ' + fdt(e.eta) }; });
+    var esOpts = S.all('escales').filter(function (e) { return e.statut !== 'Appareillé' && e.statut !== 'Annulée' && (!cs() || e.site === cs() || e.id === preset.escale); }).sort(function (a, b) { return String(a.eta).localeCompare(String(b.eta)); }).map(function (e) { return { v: e.id, l: e.navire + ' · ' + posteCourt(e.poste) + ' · ' + e.statut + ' · ETA ' + fdt(e.eta) }; });
     if (!esOpts.length) { U.toast('Aucune escale active pour commander un service.', 'err'); return; }
     var e0 = esca(preset.escale);
     var defH = e0 ? (e0.ata ? (e0.etd > nowISO() ? e0.etd : nowISO()) : e0.eta) : dt(0, new Date().getHours() + 2);
@@ -434,7 +437,7 @@
       onSubmit: function (v) {
         var e = esca(v.escale);
         if (v.type === 'Avitaillement en eau' && !(+v.eau > 0)) { U.toast('Indiquez la quantité d\'eau demandée.', 'err'); return false; }
-        var rec = { id: nextId(), escale: v.escale, site: e ? e.site : 'OWE', type: v.type, mouvement: v.mouvement, heure: v.heure, duree: +v.duree || DUREE[v.type], pilote: '', moyens: [], eau: v.type === 'Avitaillement en eau' ? +v.eau : 0, eauLivree: null, statut: 'Demandé', debut: '', fin: '', obs: v.obs || '', prestation: '', histo: [] };
+        var rec = { id: nextId(), escale: v.escale, site: e ? e.site : (E.scope() || 'OWE'), type: v.type, mouvement: v.mouvement, heure: v.heure, duree: +v.duree || DUREE[v.type], pilote: '', moyens: [], eau: v.type === 'Avitaillement en eau' ? +v.eau : 0, eauLivree: null, statut: 'Demandé', debut: '', fin: '', obs: v.obs || '', prestation: '', histo: [] };
         addHisto(rec, 'Ordre créé'); S.add('services', rec);
         E.log('Ordre de service créé ' + rec.id, rec.type + ' · ' + navire(rec) + ' · ' + fdt(rec.heure), 'services');
         E.notify(rec.type + ' demandé à ' + fh(rec.heure), navire(rec) + ' — ' + (e ? E.posteName(e.poste) : ''), '#/services/' + rec.id, 'violet');

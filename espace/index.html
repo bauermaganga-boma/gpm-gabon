@@ -46,7 +46,8 @@
   .btn.block{width:100%;padding:12px;font-size:14px}
   .demo-title{display:flex;align-items:center;gap:10px;margin:26px 0 12px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
   .demo-title::before,.demo-title::after{content:"";flex:1;height:1px;background:var(--line)}
-  .accounts{display:grid;gap:8px}
+  .accounts{display:grid;gap:8px;grid-template-columns:minmax(0,1fr)}
+  .acc{min-width:0} .sp-hint{overflow-wrap:anywhere}
   .acc{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 12px;cursor:pointer;text-align:left;width:100%;transition:border-color .15s,box-shadow .15s,transform .1s}
   .acc:hover{border-color:#b9c6d9;box-shadow:var(--sh);transform:translateY(-1px)}
   .acc .who{flex:1;min-width:0}
@@ -54,6 +55,14 @@
   .acc .who span{display:block;font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .acc code{display:inline-block;margin-top:4px;font-size:11.5px;background:var(--grey-bg);border-radius:6px;padding:2px 7px;color:var(--ink-2);white-space:nowrap}
   .acc .go{color:var(--navy);flex:none;width:18px}
+  .sp-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:10px}
+  .sp-tab{border:1px solid var(--line);background:#fff;border-radius:12px;padding:9px 10px;text-align:left;cursor:pointer;min-width:0;border-top:3px solid #cbd5e1}
+  .sp-tab b{display:block;font-size:13px;color:var(--ink)}
+  .sp-tab span{display:block;font-size:11.5px;color:var(--ink-3)}
+  .sp-tab.sp-ALL{border-top-color:#fcd116} .sp-tab.sp-OWE{border-top-color:#3a75c4} .sp-tab.sp-POG{border-top-color:#009e60}
+  .sp-tab.is-active{background:#06284f;border-color:#06284f} .sp-tab.is-active b{color:#fff} .sp-tab.is-active span{color:#c9d4e6}
+  .sp-tab.sp-POG.is-active{background:#053d34;border-color:#053d34}
+  .sp-hint{font-size:12.5px;color:var(--ink-3);margin:4px 2px 0}
   .note{font-size:12px;color:var(--ink-3);margin-top:16px;line-height:1.5}
   .note a{font-weight:600}
   @media (max-width:960px){
@@ -78,8 +87,8 @@
     <a class="brand" href="../index.html" style="color:inherit"><img src="../assets/img/icon.svg" alt="Gabon Port Management"><div><b>Gabon Port Management</b><span>Espace de gestion · Owendo · Port-Gentil</span></div></a>
     <div class="art__main">
       <span class="eyebrow">Plateforme de gestion intégrée</span>
-      <h1>Pilotez les deux ports <em>depuis un seul écran.</em></h1>
-      <p>Escales et plan de quai, pilotage et remorquage, terminal à conteneurs, soutage et eau, facturation des armateurs, achats, maintenance de la flotte, ressources humaines et sûreté ISPS : chaque service travaille sur les mêmes données, avec des circuits de validation clairs et des tableaux de bord en temps réel.</p>
+      <h1>Un espace par port, <em>une vue pour la direction.</em></h1>
+      <p>Escales et plan de quai, pilotage et remorquage, terminal à conteneurs, soutage et eau, facturation des armateurs, achats, maintenance de la flotte, ressources humaines et sûreté ISPS : Libreville et Port-Gentil ont chacun leur espace, leurs équipes et leurs données ; la Direction générale pilote les deux, avec des circuits de validation clairs et des tableaux de bord en temps réel.</p>
       <div class="mods" id="mods"></div>
     </div>
     <div class="art__foot">© 2026 Gabon Port Management — Owendo, Libreville · Proposition réalisée par Rouana</div>
@@ -89,16 +98,17 @@
       <a class="btn" href="../index.html" style="margin-bottom:22px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 19l-7-7 7-7"/></svg>Retour au site</a>
       <h2>Connexion</h2>
       <p>Accédez à votre espace avec vos identifiants.</p>
-      <div class="demo-creds"><b>Accès démonstration</b><div>Identifiant : <code>direction</code> &nbsp;·&nbsp; Mot de passe : <code>demo2026</code></div><span>Autres profils : exploitation, commercial, finance, technique, achats, rh, hse — même mot de passe.</span></div>
+      <div class="demo-creds"><b>Accès démonstration</b><div>Direction générale : <code>direction</code> · Mot de passe : <code>demo2026</code></div><span>Chaque port a son propre espace : comptes <code>lbv.…</code> (Libreville) et <code>pog.…</code> (Port-Gentil), même mot de passe.</span></div>
       <form class="fcard" id="login-form" autocomplete="off">
-        <div class="field"><label for="login">Identifiant</label><input class="input" id="login" name="login" placeholder="ex. direction" autocapitalize="none"></div>
+        <div class="field"><label for="login">Identifiant</label><input class="input" id="login" name="login" placeholder="ex. direction, lbv.exploitation, pog.hse" autocapitalize="none"></div>
         <div class="field"><label for="pass">Mot de passe</label><div class="pw"><input class="input" id="pass" name="pass" type="password" placeholder="••••••••"><button type="button" id="show">Afficher</button></div></div>
         <div class="err" id="err"></div>
         <button class="btn primary block" type="submit">Se connecter</button>
       </form>
-      <div class="demo-title">Comptes de démonstration</div>
+      <div class="demo-title">Choisissez un espace</div>
+      <div class="sp-tabs" id="sp-tabs" role="tablist"></div>
       <div class="accounts" id="accounts"></div>
-      <p class="note">Cliquez sur un profil pour entrer directement. Chaque profil voit les modules et les validations de son métier ; la <b>Direction générale</b> voit tout. Les données sont fictives et restent sur cet appareil. <a href="../index.html">← Retour au site</a></p>
+      <p class="note">Cliquez sur un profil pour entrer directement. Chaque profil voit les modules et les validations de son métier ; la <b>Direction générale</b> voit les deux ports, ensemble (vue consolidée) ou séparément. Les données sont fictives et restent sur cet appareil. <a href="../index.html">← Retour au site</a></p>
     </div>
   </section>
 </div>
@@ -108,9 +118,16 @@
   var U = ERP.USERS, icon = ERP.icon;
   var MODS = [['ship', 'Escales & plan de quai'], ['compass', 'Pilotage & remorquage'], ['container', 'Terminal & parc'], ['fuel', 'Soutage & eau'], ['invoice', 'Facturation armateurs'], ['cart', 'Achats & magasin'], ['wrench', 'Maintenance flotte'], ['userplus', 'Recrutement & RH'], ['shield', 'HSE & sûreté ISPS'], ['chart', 'Tableaux de bord']];
   document.getElementById('mods').innerHTML = MODS.map(function (m) { return '<div>' + icon(m[0]) + m[1] + '</div>'; }).join('');
-  document.getElementById('accounts').innerHTML = U.map(function (u) {
-    return '<button class="acc" data-l="' + u.login + '">' + ERP.ui.avatar(u.name, u.color) + '<div class="who"><b>' + ERP.esc(u.role) + '</b><span>' + ERP.esc(u.desc) + '</span><code>Identifiant : ' + u.login + ' · Mot de passe : ' + u.pass + '</code></div>' + icon('arrow', 'go') + '</button>';
-  }).join('');
+  var SP = [['ALL', 'Direction générale', 'Les deux ports'], ['OWE', 'Espace Libreville', 'Port d’Owendo'], ['POG', 'Espace Port-Gentil', 'Port de Port-Gentil']];
+  var cur = (new URLSearchParams(location.search).get('espace') || 'ALL').toUpperCase(); if (!SP.some(function (x) { return x[0] === cur; })) cur = 'ALL';
+  function drawAcc() {
+    document.getElementById('sp-tabs').innerHTML = SP.map(function (x) { return '<button type="button" role="tab" aria-selected="' + (x[0] === cur) + '" class="sp-tab sp-' + x[0] + (x[0] === cur ? ' is-active' : '') + '" data-sp="' + x[0] + '"><b>' + x[1] + '</b><span>' + x[2] + '</span></button>'; }).join('');
+    document.getElementById('accounts').innerHTML = U.filter(function (u) { return u.space === cur; }).map(function (u) {
+      return '<button class="acc" data-l="' + u.login + '">' + ERP.ui.avatar(u.name, u.color) + '<div class="who"><b>' + ERP.esc(u.role) + '</b><span>' + ERP.esc(u.name) + ' — ' + ERP.esc(u.desc) + '</span><code>Identifiant : ' + u.login + ' · Mot de passe : ' + u.pass + '</code></div>' + icon('arrow', 'go') + '</button>';
+    }).join('') + (cur === 'ALL' ? '<p class="sp-hint">Le Directeur général passe d’un espace à l’autre depuis le menu : <b>Global</b>, <b>Libreville</b> ou <b>Port-Gentil</b>.</p>' : '');
+  }
+  drawAcc();
+  document.getElementById('sp-tabs').addEventListener('click', function (e) { var t = e.target.closest('[data-sp]'); if (t) { cur = t.dataset.sp; drawAcc(); } });
   function enter(l, p) {
     var u = ERP.session.login(l, p);
     if (!u) { document.getElementById('err').textContent = 'Identifiant ou mot de passe incorrect.'; return; }
@@ -123,7 +140,7 @@
     setTimeout(function () { enter(u.login, u.pass); }, 250);
   });
   document.getElementById('login-form').addEventListener('submit', function (e) { e.preventDefault(); enter(this.login.value, this.pass.value); });
-  var qu = new URLSearchParams(location.search).get('u'); var pre = U.find(function (x) { return x.login === qu; }) || U[0]; document.getElementById('login').value = pre.login; document.getElementById('pass').value = pre.pass;
+  var qu = new URLSearchParams(location.search).get('u'); var pre = U.find(function (x) { return x.login === qu; }) || U.find(function (x) { return x.space === cur; }) || U[0]; document.getElementById('login').value = pre.login; document.getElementById('pass').value = pre.pass;
   document.getElementById('show').onclick = function () { var p = document.getElementById('pass'); p.type = p.type === 'password' ? 'text' : 'password'; this.textContent = p.type === 'password' ? 'Afficher' : 'Masquer'; };
 })();
 </script>

@@ -178,3 +178,8 @@
 .ops-eq .card__h h3{font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ops-eq .list__item{padding:9px 16px}
 @media (max-width:640px){.ops-eqgrid{grid-template-columns:1fr}}
+/* Magasin & stocks : bandeau du magasin de l'espace actif */
+.ops-note.stk-mag{display:flex;gap:10px;align-items:flex-start;border-style:solid;background:#f3f7fc;font-size:13px}
+.ops-note.stk-mag svg{width:18px;height:18px;flex:none;margin-top:1px;color:var(--navy)}
+body[data-space="POG"] .ops-note.stk-mag{background:#eef8f3;border-color:#bfe3d0}
+body[data-space="POG"] .ops-note.stk-mag svg{color:#009e60}

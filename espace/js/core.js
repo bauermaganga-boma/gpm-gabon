@@ -4,7 +4,7 @@
    sécurisée (comptes nominatifs, sauvegardes, droits par rôle). */
 (function () {
   'use strict';
-  var KEY = 'gpm_erp_v1', SESSION = 'gpm_erp_session';
+  var KEY = 'gpm_erp_v1', SESSION = 'gpm_erp_session', SCOPE_KEY = 'gpm_erp_scope';
   var TODAY = new Date(); TODAY.setHours(0, 0, 0, 0);
 
   /* ------------------------------------------------------------------ utils */
@@ -42,56 +42,111 @@
   var db = null;
   function load() { try { db = JSON.parse(localStorage.getItem(KEY)); } catch (e) { db = null; } if (!db || !db.c) db = { v: 1, c: {}, audit: [], notifs: [] }; }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { console.warn('Stockage plein', e); } }
+  /* ---------- Espaces par site ----------
+     Chaque enregistrement porte un champ « site » (OWE = Libreville/Owendo, POG = Port-Gentil).
+     Quand un espace de site est actif, toutes les lectures ne voient que les données de ce site et
+     tout nouvel enregistrement est rattaché à ce site. La vue globale (Direction générale) voit tout.
+     Les référentiels ci-dessous sont communs aux deux sites. */
+  var GLOBAL_COLS = { sites: 1, directions: 1, clients: 1, fournisseurs: 1, tarifs: 1, paramFacturation: 1, paie_params: 1 };
+  var scopeVal = '', scopeOff = false;
+  function curScope() { return scopeOff ? '' : scopeVal; }
+  function inScope(col, r) { var s = curScope(); return !s || GLOBAL_COLS[col] || !r || !r.site || r.site === s; }
+  function raw(col) { return db.c[col] || (db.c[col] = []); }
+  /* Vue filtrée d'une collection ; push/unshift sur la vue écrivent aussi dans la collection complète. */
+  function view(col) {
+    var full = raw(col); if (!curScope() || GLOBAL_COLS[col]) return full;
+    var v = full.filter(function (r) { return inScope(col, r); });
+    v.push = function () { var a = [].slice.call(arguments); a.forEach(function (o) { tag(col, o); full.push(o); }); return Array.prototype.push.apply(v, a); };
+    v.unshift = function () { var a = [].slice.call(arguments); a.forEach(function (o) { tag(col, o); }); full.unshift.apply(full, a); return Array.prototype.unshift.apply(v, a); };
+    return v;
+  }
+  function tag(col, o) { var s = curScope(); if (s && o && typeof o === 'object' && !o.site && !GLOBAL_COLS[col]) o.site = s; return o; }
   var store = {
-    all: function (col) { return db.c[col] || (db.c[col] = []); },
+    all: view,
+    raw: raw,
     get: function (col, id) { return store.all(col).find(function (x) { return x.id === id; }); },
-    set: function (col, arr) { db.c[col] = arr; save(); },
-    add: function (col, obj, prefix) { if (!obj.id) obj.id = uid(prefix || col.slice(0, 3).toUpperCase()); store.all(col).unshift(obj); save(); return obj; },
+    set: function (col, arr) { if (curScope() && !GLOBAL_COLS[col]) { arr.forEach(function (o) { tag(col, o); }); db.c[col] = raw(col).filter(function (r) { return !inScope(col, r) && arr.indexOf(r) < 0; }).concat(arr); } else db.c[col] = arr; save(); },
+    add: function (col, obj, prefix) { if (!obj.id) obj.id = uid(prefix || col.slice(0, 3).toUpperCase()); tag(col, obj); raw(col).unshift(obj); save(); return obj; },
     update: function (col, id, patch) { var o = store.get(col, id); if (o) { Object.assign(o, patch); save(); } return o; },
-    remove: function (col, id) { db.c[col] = store.all(col).filter(function (x) { return x.id !== id; }); save(); },
+    remove: function (col, id) { db.c[col] = raw(col).filter(function (x) { return !(x.id === id && inScope(col, x)); }); save(); },
     has: function (col) { return Array.isArray(db.c[col]); },
     save: save,
     /* numéro de pièce séquentiel : ERP.store.next('BC') -> BC-2026-0143 */
     next: function (prefix) { db.seq = db.seq || {}; var n = (db.seq[prefix] || 100) + 1; db.seq[prefix] = n; save(); return prefix + '-2026-' + String(n).padStart(4, '0'); },
-    reset: function () { localStorage.removeItem(KEY); localStorage.removeItem('gpm_candidatures_site'); localStorage.removeItem('gpm_demandes_escale_site'); localStorage.removeItem('gpm_contacts_site'); location.reload(); }
+    reset: function () { localStorage.removeItem(KEY); localStorage.removeItem('gpm_candidatures_site'); localStorage.removeItem('gpm_demandes_escale_site'); localStorage.removeItem('gpm_contacts_site'); localStorage.removeItem(SCOPE_KEY); location.reload(); }
   };
 
   /* Journal d'audit + notifications */
   function log(action, detail, module) {
     var u = session.user();
-    db.audit.unshift({ at: new Date().toISOString(), user: u ? u.name : 'Système', role: u ? u.role : '', action: action, detail: detail || '', module: module || currentModule || '' });
+    db.audit.unshift({ at: new Date().toISOString(), user: u ? u.name : 'Système', role: u ? u.role : '', action: action, detail: detail || '', module: module || currentModule || '', site: curScope() || '' });
     db.audit = db.audit.slice(0, 300); save();
   }
   function notify(title, detail, href, tone) {
-    db.notifs.unshift({ id: uid('N'), at: new Date().toISOString(), title: title, detail: detail || '', href: href || '', tone: tone || 'blue', read: false });
+    db.notifs.unshift({ id: uid('N'), at: new Date().toISOString(), title: title, detail: detail || '', href: href || '', tone: tone || 'blue', read: false, site: curScope() || '' });
     db.notifs = db.notifs.slice(0, 60); save(); renderNotifDot();
   }
 
   /* ------------------------------------------------------------------ comptes de démonstration */
-  var USERS = [
-    { login: 'direction', pass: 'demo2026', name: 'Oswald Séverin Mayounou', short: 'DG', role: 'Directeur général', profile: 'admin', color: '#0b3a6e', civilite: 'Monsieur le Directeur général',
-      desc: 'Accès complet : tous les modules, validations finales, paramètres.' },
-    { login: 'exploitation', pass: 'demo2026', name: 'Rodrigue Ndong Ella', short: 'RN', role: 'Chef d’exploitation portuaire', profile: 'exploitation', color: '#0e7490',
-      desc: 'Escales, plan de quai, pilotage, remorquage, terminal, soutage.' },
-    { login: 'commercial', pass: 'demo2026', name: 'Nadia Ogoula', short: 'NO', role: 'Directrice commerciale', profile: 'commercial', color: '#2563eb',
-      desc: 'Armateurs et consignataires, demandes d’escale, devis, facturation.' },
-    { login: 'finance', pass: 'demo2026', name: 'Christelle Moussounda', short: 'CM', role: 'Directrice administrative et financière', profile: 'finance', color: '#1e9e4a',
-      desc: 'Facturation, encaissements, budgets, paie, validation des achats.' },
-    { login: 'technique', pass: 'demo2026', name: 'Fabrice Mbadinga', short: 'FM', role: 'Chef du service technique', profile: 'technique', color: '#e8780c',
-      desc: 'Flotte, grues et engins, maintenance, magasin, projets d’infrastructure.' },
-    { login: 'achats', pass: 'demo2026', name: 'Serge Obiang Nze', short: 'SO', role: 'Responsable achats & magasin', profile: 'achats', color: '#b45309',
-      desc: 'Demandes d’achat, devis fournisseurs, commandes, stocks.' },
-    { login: 'rh', pass: 'demo2026', name: 'Aurélie Mbina', short: 'AM', role: 'Responsable ressources humaines', profile: 'rh', color: '#7c3aed',
-      desc: 'Recrutement, stages, personnel, congés, formation et paie.' },
-    { login: 'hse', pass: 'demo2026', name: 'Patrick Koumba', short: 'PK', role: 'Responsable HSE & sûreté (PFSO)', profile: 'hse', color: '#d93636',
-      desc: 'Sûreté ISPS, accès portuaires, permis de travail, incidents, exercices.' }
-  ];
-  var session = {
-    user: function () { try { var l = sessionStorage.getItem(SESSION) || localStorage.getItem(SESSION); return USERS.find(function (u) { return u.login === l; }) || null; } catch (e) { return null; } },
-    login: function (login, pass) { var u = USERS.find(function (x) { return x.login === String(login).trim().toLowerCase() && x.pass === pass; }); if (!u) return null; try { localStorage.setItem(SESSION, u.login); } catch (e) {} return u; },
-    logout: function () { try { localStorage.removeItem(SESSION); sessionStorage.removeItem(SESSION); } catch (e) {} location.href = 'index.html'; },
-    can: function (mod) { var u = session.user(); if (!u) return false; if (u.profile === 'admin') return true; return !mod.roles || mod.roles.indexOf(u.profile) >= 0; }
+  /* Espaces : 'ALL' = Direction générale (les deux sites + vue consolidée), 'OWE' = Libreville (port d'Owendo), 'POG' = Port-Gentil. */
+  var SPACES = {
+    ALL: { code: 'ALL', nom: 'Direction générale', court: 'Vue consolidée', ville: 'Owendo · Port-Gentil', color: '#06284f', accent: '#fcd116' },
+    OWE: { code: 'OWE', nom: 'Espace Libreville', court: 'Port d’Owendo', ville: 'Libreville', color: '#06284f', accent: '#3a75c4' },
+    POG: { code: 'POG', nom: 'Espace Port-Gentil', court: 'Port de Port-Gentil', ville: 'Port-Gentil', color: '#053d34', accent: '#009e60' }
   };
+  var USERS = [
+    { login: 'direction', pass: 'demo2026', name: 'Nassib Barchiche', short: 'DG', role: 'Directeur général', profile: 'admin', space: 'ALL', color: '#0b3a6e', civilite: 'Monsieur le Directeur général', /* photo: '../assets/img/dg-nassib-barchiche.jpg' — à réactiver à réception de la photo */
+      desc: 'Vue consolidée des deux ports et accès à l’espace de chaque site.' }
+  ];
+  /* [identifiant, nom, rôle, profil, couleur, description] — un jeu de comptes par site */
+  var STAFF = {
+    OWE: [
+      ['direction', 'Rodrigue Ndong Ella', 'Directeur du port d’Owendo', 'admin', '#0b3a6e', 'Pilotage complet de l’espace Libreville.'],
+      ['exploitation', 'Gaël Mouketou', 'Chef d’exploitation portuaire', 'exploitation', '#0e7490', 'Escales, plan de quai, pilotage, remorquage, terminal.'],
+      ['commercial', 'Nadia Ogoula', 'Directrice commerciale', 'commercial', '#2563eb', 'Armateurs, demandes d’escale, devis, facturation.'],
+      ['finance', 'Christelle Moussounda', 'Directrice administrative et financière', 'finance', '#1e9e4a', 'Facturation, encaissements, paie, validation des achats.'],
+      ['technique', 'Fabrice Mbadinga', 'Chef du service technique', 'technique', '#e8780c', 'Flotte, grues, maintenance, magasin, projets.'],
+      ['achats', 'Serge Obiang Nze', 'Responsable achats & magasin', 'achats', '#b45309', 'Demandes d’achat, devis fournisseurs, commandes, stocks.'],
+      ['rh', 'Aurélie Mbina', 'Responsable ressources humaines', 'rh', '#7c3aed', 'Recrutement, stages, personnel, paie.'],
+      ['hse', 'Patrick Koumba', 'Responsable HSE & sûreté (PFSO)', 'hse', '#d93636', 'Sûreté ISPS, accès, permis de travail, incidents.']
+    ],
+    POG: [
+      ['direction', 'Christian Bivigou', 'Chef d’agence de Port-Gentil', 'admin', '#053d34', 'Pilotage complet de l’espace Port-Gentil.'],
+      ['exploitation', 'Linda Nzamba', 'Responsable exploitation, soutage & eau douce', 'exploitation', '#0e7490', 'Escales, services maritimes, soutage et eau douce.'],
+      ['commercial', 'Yvette Mabika', 'Responsable commerciale', 'commercial', '#2563eb', 'Clients offshore et pétroliers, devis, facturation.'],
+      ['finance', 'Gisèle Boukandou', 'Responsable administrative et financière', 'finance', '#1e9e4a', 'Facturation, encaissements, paie du site.'],
+      ['technique', 'Arnaud Moussavou', 'Responsable technique', 'technique', '#e8780c', 'Remorqueur, barge de soutage, engins, maintenance.'],
+      ['achats', 'Hugues Ndjoli', 'Responsable achats & magasin', 'achats', '#b45309', 'Achats, magasin de Port-Gentil.'],
+      ['rh', 'Prisca Nziengui', 'Chargée des ressources humaines', 'rh', '#7c3aed', 'Personnel, stages et paie du site.'],
+      ['hse', 'Landry Mouyabi', 'Responsable HSE & sûreté (PFSO)', 'hse', '#d93636', 'Sûreté ISPS, prévention des pollutions, permis.']
+    ]
+  };
+  Object.keys(STAFF).forEach(function (site) {
+    var pre = site === 'OWE' ? 'lbv.' : 'pog.';
+    STAFF[site].forEach(function (x) { USERS.push({ login: pre + x[0], pass: 'demo2026', name: x[1], role: x[2], profile: x[3], space: site, color: x[4], desc: x[5] }); });
+  });
+  var ALIAS = { exploitation: 'lbv.exploitation', commercial: 'lbv.commercial', finance: 'lbv.finance', technique: 'lbv.technique', achats: 'lbv.achats', rh: 'lbv.rh', hse: 'lbv.hse', dg: 'direction' };
+  var session = {
+    user: function () { try { var l = sessionStorage.getItem(SESSION) || localStorage.getItem(SESSION); l = ALIAS[l] || l; return USERS.find(function (u) { return u.login === l; }) || null; } catch (e) { return null; } },
+    login: function (login, pass) { var l = String(login).trim().toLowerCase(); l = ALIAS[l] || l; var u = USERS.find(function (x) { return x.login === l && x.pass === pass; }); if (!u) return null; try { localStorage.setItem(SESSION, u.login); localStorage.removeItem(SCOPE_KEY); } catch (e) {} return u; },
+    logout: function () { try { localStorage.removeItem(SESSION); sessionStorage.removeItem(SESSION); localStorage.removeItem(SCOPE_KEY); } catch (e) {} location.href = 'index.html'; },
+    /* espace actif : '' (vue globale) | 'OWE' | 'POG' */
+    scope: function () { var u = session.user(); if (!u) return ''; if (u.space !== 'ALL') return u.space; var s = ''; try { s = localStorage.getItem(SCOPE_KEY) || ''; } catch (e) {} return SPACES[s] && s !== 'ALL' ? s : ''; },
+    space: function () { return SPACES[session.scope() || 'ALL']; },
+    multi: function () { var u = session.user(); return !!u && u.space === 'ALL'; },
+    setScope: function (s) { if (!session.multi()) return; try { if (s) localStorage.setItem(SCOPE_KEY, s); else localStorage.removeItem(SCOPE_KEY); } catch (e) {} scopeVal = session.scope(); },
+    can: function (mod) {
+      var u = session.user(); if (!u) return false;
+      var sc = session.scope() || 'ALL';
+      if (mod.scopes && mod.scopes.indexOf(sc) < 0) return false;
+      if (mod.sites && sc !== 'ALL' && mod.sites.indexOf(sc) < 0) return false;
+      if (sc !== 'ALL' && siteDisabled(sc, mod.id)) return false;
+      if (u.profile === 'admin') return true; return !mod.roles || mod.roles.indexOf(u.profile) >= 0;
+    }
+  };
+  /* Modules désactivés par site (spécificités paramétrées par la Direction générale) */
+  function siteConf(site) { db.siteConf = db.siteConf || {}; return db.siteConf[site] || (db.siteConf[site] = { off: [] }); }
+  function siteDisabled(site, id) { return !!db && id !== 'dashboard' && siteConf(site).off.indexOf(id) >= 0; }
 
   /* ------------------------------------------------------------------ icônes (traits 2px, style Lucide) */
   var P = {
@@ -179,7 +234,7 @@
   };
   function badge(text, tone) { tone = tone || STATUS_TONE[norm(text).replace(/é/g, 'é')] || STATUS_TONE[String(text || '').toLowerCase()] || 'grey'; return '<span class="badge ' + (TONES[tone] || tone) + '">' + esc(text) + '</span>'; }
   function progress(p, color) { p = Math.max(0, Math.min(100, +p || 0)); color = color || (p >= 100 ? 'green' : ''); return '<div class="pbar"><div class="progress ' + color + '"><i style="width:' + p + '%"></i></div><span>' + Math.round(p) + '%</span></div>'; }
-  function avatar(name, color, sm) { var pu = USERS.find(function (u) { return u.photo && u.name === name; }); if (pu) return '<span class="avatar' + (sm ? ' sm' : '') + '" style="background:#0b3a6e;overflow:hidden;padding:0"><img src="' + pu.photo + '" alt="' + esc(name) + '" style="width:100%;height:100%;object-fit:cover"></span>'; var c = color; if (!c) { var hsh = 0; String(name).split('').forEach(function (ch) { hsh = (hsh * 31 + ch.charCodeAt(0)) >>> 0; }); c = ['#0f2d5c', '#2563eb', '#7c3aed', '#1e9e4a', '#e8780c', '#0e7490', '#be185d', '#475569'][hsh % 8]; } return '<span class="avatar' + (sm ? ' sm' : '') + '" style="background:' + c + '">' + esc(fmt.initials(name)) + '</span>'; }
+  function avatar(name, color, sm) { var pu = USERS.find(function (u) { return u.photo && u.name === name; }); if (pu) return '<span class="avatar' + (sm ? ' sm' : '') + '" style="background:#0b3a6e;overflow:hidden;padding:0;position:relative"><b style="position:absolute;inset:0;display:grid;place-items:center;font-weight:700">' + esc(fmt.initials(name)) + '</b><img src="' + pu.photo + '" alt="' + esc(name) + '" style="position:relative;width:100%;height:100%;object-fit:cover" onerror="this.remove()"></span>'; var c = color; if (!c) { var hsh = 0; String(name).split('').forEach(function (ch) { hsh = (hsh * 31 + ch.charCodeAt(0)) >>> 0; }); c = ['#0f2d5c', '#2563eb', '#7c3aed', '#1e9e4a', '#e8780c', '#0e7490', '#be185d', '#475569'][hsh % 8]; } return '<span class="avatar' + (sm ? ' sm' : '') + '" style="background:' + c + '">' + esc(fmt.initials(name)) + '</span>'; }
   function kpi(o) { return '<div class="card kpi">' + (o.icon ? '<div class="kpi__icon ' + (TONES[o.tone || 'blue']) + '">' + icon(o.icon) + '</div>' : '') + '<div class="kpi__label">' + esc(o.label) + '</div><div class="kpi__value">' + o.value + (o.unit ? '<small>' + esc(o.unit) + '</small>' : '') + '</div>' + (o.foot ? '<div class="kpi__foot">' + o.foot + '</div>' : '') + '</div>'; }
 
   /* Tableau : columns = [{key,label,num,render(row),width,class}] ; options: onRow(row), empty, footer(rows) */
@@ -471,10 +526,12 @@
     var m = mod(parts[0]) || mod('dashboard');
     if (!session.can(m)) { m = mod('dashboard'); parts = ['dashboard']; }
     currentModule = m.id;
+    migrateSites();
     $$('.side__link').forEach(function (a) { a.classList.toggle('is-active', a.dataset.m === m.id); });
     $('#top-title').textContent = m.title || m.label;
-    $('#top-crumb').textContent = (m.group || '') + ' · ' + (m.label);
-    document.title = m.label + ' · GPM — Espace de gestion';
+    var sp = session.space();
+    $('#top-crumb').textContent = sp.nom + ' · ' + (m.group || '') + ' · ' + (m.label);
+    document.title = m.label + ' · ' + sp.nom + ' — GPM';
     var view = $('#view'); view.innerHTML = ''; view.className = 'view fade-in'; void view.offsetWidth;
     try { m.render(view, parts.slice(1)); } catch (e) { console.error(e); view.innerHTML = '<div class="card card__b">Erreur d\'affichage du module : ' + esc(e.message) + '</div>'; }
     $('#app').classList.remove('nav-open');
@@ -495,7 +552,8 @@
   function renderBadges() {
     $$('.side__link').forEach(function (a) { var m = mod(a.dataset.m), c = a.querySelector('.count'); var n = m && m.badge ? m.badge() : 0; if (c) { c.textContent = n; c.classList.toggle('hide', !n); } });
   }
-  function renderNotifDot() { var d = $('#notif-dot'); if (d) d.classList.toggle('hide', !db.notifs.some(function (n) { return !n.read; })); }
+  function myNotifs() { var sc = curScope(); return db.notifs.filter(function (n) { return !sc || !n.site || n.site === sc; }); }
+  function renderNotifDot() { var d = $('#notif-dot'); if (d) d.classList.toggle('hide', !myNotifs().some(function (n) { return !n.read; })); }
 
   /* Toutes les validations en attente, tous modules confondus */
   function pendingAll() {
@@ -506,11 +564,11 @@
 
   function openNotifs(anchor) {
     var old = $('.popover'); if (old) { var same = old.parentNode === anchor.parentNode; old.remove(); if (same) return; }
-    var list = db.notifs.slice(0, 20);
+    var list = myNotifs().slice(0, 20);
     var pop = h('<div class="popover"><div class="popover__h">Notifications<button class="btn ghost sm" style="margin-left:auto" id="nt-all">Tout marquer comme lu</button></div><div class="popover__b list">' +
       (list.length ? list.map(function (n) { return '<a class="list__item" href="' + (n.href || '#') + '" style="color:inherit;' + (n.read ? '' : 'background:#f7faff') + '"><div class="list__icon ' + TONES[n.tone || 'blue'] + '">' + icon('bell') + '</div><div class="list__body"><b>' + esc(n.title) + '</b><div class="small muted">' + esc(n.detail) + '</div><div class="small muted">' + fmt.ago(n.at) + '</div></div></a>'; }).join('') : '<div class="empty">Aucune notification</div>') + '</div></div>');
     anchor.parentNode.style.position = 'relative'; anchor.parentNode.appendChild(pop);
-    $('#nt-all', pop).onclick = function (e) { e.stopPropagation(); db.notifs.forEach(function (n) { n.read = true; }); save(); renderNotifDot(); pop.remove(); };
+    $('#nt-all', pop).onclick = function (e) { e.stopPropagation(); myNotifs().forEach(function (n) { n.read = true; }); save(); renderNotifDot(); pop.remove(); };
     setTimeout(function () { document.addEventListener('click', function f(e) { if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('click', f); } }); });
   }
   function openUserMenu(anchor) {
@@ -534,14 +592,57 @@
     $$('[data-close]').forEach(function (a) { a.addEventListener('click', function () { var b = $('.modal-back'); if (b) b.remove(); }); });
   }
 
+  /* ---------- Rattachement des données à un site ---------- */
+  function hashSite(id) { var h = 0; String(id || '').split('').forEach(function (c) { h = (h * 31 + c.charCodeAt(0)) >>> 0; }); return h % 10 < 7 ? 'OWE' : 'POG'; }
+  function lookupSite(col, id) { if (!id) return ''; var r = (db.c[col] || []).find(function (x) { return x.id === id; }); return r && (r.site === 'OWE' || r.site === 'POG') ? r.site : ''; }
+  function guessSite(col, r) {
+    if (col === 'postes' && r.id) return String(r.id).slice(0, 3);
+    var x = lookupSite('escales', r.escale || r.escaleId) || lookupSite('employes', r.employe || r.employeId || r.matricule || r.agent || r.demandeur) ||
+      lookupSite('flotte', r.equipement || r.equipementId || r.engin || r.moyen) || lookupSite('postes', r.poste) || lookupSite('projets', r.projet);
+    if (x) return x;
+    var t = ''; try { t = JSON.stringify(r); } catch (e) {}
+    var pog = /Port-Gentil|POG-|"POG"|Cap Lopez|Mandji|offshore/i.test(t), owe = /Owendo|OWE-|"OWE"|Libreville/i.test(t);
+    if (pog && !owe) return 'POG'; if (owe && !pog) return 'OWE';
+    return hashSite(r.id || t.slice(0, 40));
+  }
+  function migrateSites() {
+    var n = 0;
+    Object.keys(db.c).forEach(function (col) {
+      if (GLOBAL_COLS[col] || !Array.isArray(db.c[col])) return;
+      db.c[col].forEach(function (r) { if (r && typeof r === 'object' && r.site !== 'OWE' && r.site !== 'POG' && !(r.site === '' && col === 'sites')) { r.site = guessSite(col, r); n++; } });
+    });
+    if (n) save();
+  }
+  /* Exécute fn dans l'espace d'un site (sans changer l'affichage) : utile pour les vues consolidées. */
+  function withScope(site, fn) { var a = scopeVal, b = scopeOff; scopeVal = site || ''; scopeOff = false; try { return fn(); } finally { scopeVal = a; scopeOff = b; } }
+  function switchSpace(code) { session.setScope(code === 'ALL' ? '' : code); renderSpace(); renderNav(); renderNotifDot(); if (location.hash === '#/dashboard' || !location.hash) route(); else go('dashboard'); toast('Vous êtes dans : ' + session.space().nom); }
+  function renderSpace() {
+    var sp = session.space(), u = session.user();
+    document.body.setAttribute('data-space', sp.code);
+    var b = $('.side__brand span'); if (b) b.textContent = sp.code === 'ALL' ? 'Direction générale' : sp.nom;
+    var box = $('#space-box');
+    if (!box) { box = h('<div class="space-box" id="space-box"></div>'); var br = $('.side__brand'); if (br) br.parentNode.insertBefore(box, br.nextSibling); }
+    if (session.multi()) {
+      box.innerHTML = '<div class="space-box__lbl">Espace</div><div class="space-switch" role="tablist">' + ['ALL', 'OWE', 'POG'].map(function (c) { var x = SPACES[c]; return '<button role="tab" data-sp="' + c + '" class="' + (x.code === sp.code ? 'is-active' : '') + '" aria-selected="' + (x.code === sp.code) + '"><b>' + (c === 'ALL' ? 'Global' : c === 'OWE' ? 'Libreville' : 'Port-Gentil') + '</b></button>'; }).join('') + '</div>';
+      box.onclick = function (e) { var t = e.target.closest('[data-sp]'); if (t && t.dataset.sp !== (session.scope() || 'ALL')) switchSpace(t.dataset.sp); };
+    } else {
+      box.innerHTML = '<div class="space-pill">' + icon('pin') + '<div><b>' + esc(sp.nom) + '</b><span>' + esc(sp.court) + '</span></div></div>';
+    }
+    var tp = $('#top-space'); if (tp) { tp.textContent = sp.code === 'ALL' ? 'Vue consolidée' : sp.code === 'OWE' ? 'Libreville' : 'Port-Gentil'; tp.className = 'top-space sp-' + sp.code; }
+  }
+
   function boot() {
     load();
     var u = session.user();
     if (!u) { location.href = 'index.html'; return; }
+    scopeOff = true;
     seedCommon();
     modules.forEach(function (m) { if (m.seed) { var s = m.seed(); if (s) Object.keys(s).forEach(function (k) { if (!store.has(k)) store.set(k, s[k]); }); } });
     modules.forEach(function (m) { if (m.init) try { m.init(); } catch (e) { console.warn(e); } });
     if (!db.welcomed) { db.welcomed = true; seedNotifs(); save(); }
+    migrateSites();
+    scopeOff = false; scopeVal = session.scope();
+    renderSpace();
     $('#u-name').textContent = u.name; $('#u-role').textContent = u.role; $('#u-av').outerHTML = avatar(u.name, u.color);
     renderNav(); renderNotifDot();
     $('#burger').onclick = function () { $('#app').classList.toggle('nav-open'); };
@@ -557,10 +658,10 @@
   function seedNotifs() {
     var now = Date.now(), m = function (min) { return new Date(now - min * 60000).toISOString(); };
     db.notifs = [
-      { id: 'N1', at: m(8), title: 'Nouvelle demande d\'escale', detail: 'Reçue via le site internet — à confirmer', href: '#/escales', tone: 'blue', read: false },
-      { id: 'N2', at: m(40), title: 'Pilotage demandé à 14h00', detail: 'Entrée d\'un porte-conteneurs — Owendo poste 2', href: '#/services', tone: 'violet', read: false },
-      { id: 'N3', at: m(130), title: 'Commande de soutage à valider', detail: 'Port-Gentil — gasoil marin', href: '#/soutage', tone: 'orange', read: false },
-      { id: 'N4', at: m(320), title: 'Grue n° 3 : entretien 500 h', detail: 'Ordre de travail à planifier', href: '#/maintenance', tone: 'orange', read: true },
+      { id: 'N1', at: m(8), title: 'Nouvelle demande d\'escale', detail: 'Reçue via le site internet — à confirmer', href: '#/escales', tone: 'blue', read: false, site: 'OWE' },
+      { id: 'N2', at: m(40), title: 'Pilotage demandé à 14h00', detail: 'Entrée d\'un porte-conteneurs — Owendo poste 2', href: '#/services', tone: 'violet', read: false, site: 'OWE' },
+      { id: 'N3', at: m(130), title: 'Commande de soutage à valider', detail: 'Port-Gentil — gasoil marin', href: '#/soutage', tone: 'orange', read: false, site: 'POG' },
+      { id: 'N4', at: m(320), title: 'Grue n° 3 : entretien 500 h', detail: 'Ordre de travail à planifier', href: '#/maintenance', tone: 'orange', read: true, site: 'OWE' },
       { id: 'N5', at: m(1500), title: 'Nouvelle candidature de stage', detail: 'Programme d\'employabilité des jeunes — via le site', href: '#/recrutement', tone: 'green', read: true }
     ];
   }
@@ -571,6 +672,8 @@
     ui: { badge: badge, progress: progress, avatar: avatar, kpi: kpi, table: table, modal: modal, confirm: confirmBox, form: form, readForm: readForm, formModal: formModal, toast: toast, tabs: tabs, steps: steps, bars: bars, line: line, donut: donut, gauge: gauge, gantt: gantt, exportCSV: exportCSV, PALETTE: PALETTE, TONES: TONES },
     emp: emp, empName: empName, dirName: dirName, siteName: siteName, posteName: posteName, options: options,
     register: register, mod: mod, modules: modules, go: go, rerender: rerender, renderBadges: renderBadges, pendingAll: pendingAll, boot: boot,
-    audit: function () { return db.audit; }
+    audit: function () { var sc = curScope(); return db.audit.filter(function (a) { return !sc || !a.site || a.site === sc; }); },
+    SPACES: SPACES, scope: function () { return curScope(); }, space: function () { return session.space(); }, withScope: withScope, switchSpace: switchSpace,
+    siteConf: function (site) { return siteConf(site); }, saveConf: save, GLOBAL_COLS: GLOBAL_COLS
   };
 })();

@@ -169,3 +169,6 @@ td.fin-ecart{background:var(--red-bg);color:var(--red);font-weight:700}
   .fin-rec .num{text-align:left}
   .fin-rec[style]{grid-template-columns:1fr 1fr 1fr!important}
 }
+/* Achats : filtre par site (vue globale de la Direction générale) */
+.fin-site-f{max-width:210px}
+@media (max-width:640px){.fin-site-f{max-width:none;width:100%}}

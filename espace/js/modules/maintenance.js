@@ -37,7 +37,17 @@
   function eqB(s) { return U.badge(s, EQ_TONE[s] || 'grey'); }
   function prB(p) { return U.badge(p, PRIO_TONE[p] || 'grey'); }
   function when(s) { s = String(s || ''); return s ? F.dateShort(s) + (s.length > 10 ? ' · ' + s.slice(11, 16).replace(':', 'h') : '') : '—'; }
-  function techs() { return S.all('employes').filter(function (e) { return e.direction === 'TECH' || /m[ée]canicien|technicien|[ée]lectric/i.test(e.poste || ''); }); }
+  function isTech(e) { return e.direction === 'TECH' || /m[ée]canicien|technicien|[ée]lectric/i.test(e.poste || ''); }
+  /* Techniciens du site actif ; à défaut (petit site), personnel navigant et d'exploitation du site, puis techniciens des autres sites. */
+  function techs() {
+    var L = S.all('employes').filter(isTech);
+    if (!L.length) L = S.all('employes').filter(function (e) { return e.statut !== 'Sorti' && (e.direction === 'MAR' || e.direction === 'EXP'); });
+    if (!L.length) L = S.raw('employes').filter(isTech);
+    return L;
+  }
+  /* Nom d'un agent, même s'il est rattaché à l'autre site (intervenants détachés) */
+  function empName(id) { var e = S.raw('employes').find(function (x) { return x.id === id; }); return e ? e.nom : (id || '—'); }
+  function siteSuffix(e) { return E.scope() ? '' : ' · ' + (e.site === 'POG' ? 'Port-Gentil' : 'Owendo'); }
   function techOpts() { return techs().map(function (e) { return { v: e.id, l: e.nom + ' — ' + e.poste }; }); }
   function empByName(n) { var e = S.all('employes').find(function (x) { return x.nom === n; }); return e ? e.id : ''; }
   function eqOpts() { return flotte().map(function (e) { return { v: e.id, l: e.id + ' — ' + e.nom }; }); }
@@ -117,8 +127,11 @@
     return { plansMaintenance: P, ordres: O };
   }
   function init() {
+    /* rattachement des OT et des plans au site de leur équipement (corrige aussi d'anciennes données) */
+    var ch = false, FS = {};
+    S.raw('flotte').forEach(function (f) { if (f && f.site) FS[f.id] = f.site; });
+    ['ordres', 'plansMaintenance'].forEach(function (col) { S.raw(col).forEach(function (r) { if (r && r.equip && FS[r.equip] && r.site !== FS[r.equip]) { r.site = FS[r.equip]; ch = true; } }); });
     /* cohérence statut flotte ↔ OT immobilisants en cours */
-    var ch = false;
     OT().forEach(function (o) { var e = eq(o.equip); if (e && o.statut === 'En cours' && o.immobilisant && (e.statut === 'Disponible' || !e.statut)) { e.statut = 'En maintenance'; ch = true; } });
     if (ch) S.save();
   }
@@ -158,6 +171,12 @@
     draw();
     if (params[1] && tab === 'ordres') { var id = decodeURIComponent(params[1]); setTimeout(function () { openOT(id); }, 30); }
   }
+  function headTxt() {
+    var sc = E.scope();
+    if (sc === 'POG') return 'Port de Port-Gentil · remorqueur, barge de soutage et engin de parc · préventif, correctif, disponibilité.';
+    if (sc === 'OWE') return 'Port d’Owendo · remorqueurs, vedettes, grues mobiles portuaires et reach stackers · préventif, correctif, disponibilité.';
+    return 'Owendo et Port-Gentil · remorqueurs, vedettes, grues mobiles portuaires, reach stackers et barge · préventif, correctif, disponibilité.';
+  }
   function headActs() {
     var a = '<button class="btn danger" data-act="panne">' + ic('alert') + 'Déclarer une panne</button><button class="btn primary" data-act="new-ot">' + ic('plus') + 'Ordre de travail</button>';
     if (st.tab === 'ordres' || st.tab === 'preventif') a += '<button class="btn" data-act="csv">' + ic('download') + 'Export CSV</button>';
@@ -165,7 +184,7 @@
   }
   function draw() {
     var nV = OT().filter(function (o) { return o.statut === 'À valider'; }).length, nA = flotte().filter(arret).length, nD = dueList().filter(function (x) { return !x.s.ot && x.s.jours <= 7; }).length;
-    viewEl.innerHTML = '<div class="mnt-root" id="mnt-root"><div class="mnt-head"><div><h2>Flotte & maintenance</h2><p>Remorqueurs, vedettes, grues mobiles portuaires, reach stackers et barge · préventif, correctif, disponibilité.</p></div><div class="mnt-head__acts">' + headActs() + '</div></div>' +
+    viewEl.innerHTML = '<div class="mnt-root" id="mnt-root"><div class="mnt-head"><div><h2>Flotte & maintenance</h2><p>' + headTxt() + '</p></div><div class="mnt-head__acts">' + headActs() + '</div></div>' +
       U.tabs(TABS.map(function (t) { return { k: t.k, l: t.l, n: t.k === 'ordres' ? nV || null : t.k === 'apercu' ? nA || null : t.k === 'preventif' ? nD || null : null }; }), st.tab, function (k) { E.go(MOD + '/' + k); }) + '<div id="mnt-body"></div></div>';
     var body = viewEl.querySelector('#mnt-body');
     ({ apercu: vApercu, equipements: vEq, ordres: vOT, preventif: vPrev, planning: vPlan })[st.tab](body);
@@ -217,7 +236,7 @@
     var L = flotte().filter(function (e) { return st.fe === 'Tous' || e.type === st.fe; });
     body.innerHTML = '<div class="stack"><div class="chips">' + types.map(function (t) { return '<button class="chip' + (st.fe === t ? ' is-active' : '') + '" data-act="fe" data-v="' + esc(t) + '">' + esc(t) + '</button>'; }).join('') + '</div><div class="mnt-cards">' + L.map(function (e) {
       var p = dispo(e.id), nx = dueList().filter(function (x) { return x.p.equip === e.id; })[0];
-      return '<div class="card mnt-card" data-act="eq" data-id="' + e.id + '">' + eqThumb(e) + '<div class="mnt-card__b"><div class="mnt-card__t"><b>' + esc(e.id) + '</b>' + eqB(e.statut || 'Disponible') + '</div><div class="mnt-card__n">' + esc(e.nom) + '</div><div class="small muted">' + esc(e.type) + ' · ' + (e.site === 'POG' ? 'Port-Gentil' : 'Owendo') + ' · ' + esc(e.puissance || '') + '</div>' +
+      return '<div class="card mnt-card" data-act="eq" data-id="' + e.id + '">' + eqThumb(e) + '<div class="mnt-card__b"><div class="mnt-card__t"><b>' + esc(e.id) + '</b>' + eqB(e.statut || 'Disponible') + '</div><div class="mnt-card__n">' + esc(e.nom) + '</div><div class="small muted">' + esc(e.type) + siteSuffix(e) + ' · ' + esc(e.puissance || '') + '</div>' +
         '<div class="mnt-card__kv"><span>' + ic('clock') + F.num(e.heures) + ' h</span><span>' + ic('gauge') + F.num(p, 1) + ' %</span></div>' + U.progress(p, p >= 95 ? 'green' : p >= 88 ? 'orange' : 'red') +
         (nx ? '<div class="mnt-card__nx tone-' + nx.s.tone + '">' + esc(nx.p.libelle.split(' — ')[0]) + ' · ' + (nx.s.reste < 0 ? 'dépassé' : 'reste ' + F.num(nx.s.reste) + ' ' + nx.s.unit) + '</div>' : '') + '</div></div>';
     }).join('') + '</div></div>';
@@ -228,7 +247,7 @@
     { label: 'Équipement', render: function (o) { return '<b>' + esc(o.equip) + '</b><span class="mnt-sub">' + esc(eqNom(o.equip)) + '</span>'; } },
     { label: 'Intervention', render: function (o) { return esc(o.titre) + '<span class="mnt-sub">' + esc(o.type) + (o.immobilisant ? ' · immobilisant' : '') + '</span>'; } },
     { label: 'Priorité', render: function (o) { return prB(o.priorite); } },
-    { label: 'Technicien', render: function (o) { return esc(E.empName(o.technicien)); } },
+    { label: 'Technicien', render: function (o) { return esc(empName(o.technicien)); } },
     { label: 'Début prévu', render: function (o) { return when(o.debut); } },
     { label: 'Coût', num: true, render: function (o) { var c = cost(o); return c ? F.short(c) : '—'; } },
     { label: 'Statut', render: function (o) { return stB(o.statut); } }
@@ -286,7 +305,7 @@
     var body = '<div class="mnt-steps">' + U.steps(STEPS, o.statut === 'Annulé' ? 0 : idx, { finished: o.statut === 'Terminé', rejected: o.statut === 'Annulé' }) + '</div>' +
       '<div class="mnt-ot"><div><dl class="kv"><dt>Équipement</dt><dd><a href="#/maintenance/equipements/' + esc(o.equip) + '" data-close-modal>' + esc(o.equip) + ' · ' + esc(e.nom || '') + '</a> ' + eqB(e.statut || 'Disponible') + '</dd>' +
       '<dt>Intervention</dt><dd><b>' + esc(o.titre) + '</b></dd><dt>Type · priorité</dt><dd>' + esc(o.type) + ' · ' + prB(o.priorite) + (o.immobilisant ? ' ' + U.badge('Immobilisant', 'red') : '') + '</dd>' +
-      '<dt>Technicien</dt><dd>' + esc(E.empName(o.technicien)) + '</dd><dt>Période prévue</dt><dd>' + when(o.debut) + ' → ' + when(o.fin) + '</dd>' +
+      '<dt>Technicien</dt><dd>' + esc(empName(o.technicien)) + '</dd><dt>Période prévue</dt><dd>' + when(o.debut) + ' → ' + when(o.fin) + '</dd>' +
       (o.arretDebut ? '<dt>Immobilisation</dt><dd>' + when(o.arretDebut) + ' → ' + (o.arretFin ? when(o.arretFin) : '<b>en cours</b>') + ' · ' + F.num(overlapH(o.arretDebut, o.arretFin, 0, Date.now()), 0) + ' h</dd>' : '') +
       (o.plan ? '<dt>Plan préventif</dt><dd>' + esc(((S.get('plansMaintenance', o.plan) || {}).libelle) || o.plan) + '</dd>' : '') +
       (o.description ? '<dt>Description</dt><dd>' + esc(o.description) + '</dd>' : '') + (o.rapport ? '<dt>Rapport</dt><dd>' + esc(o.rapport) + '</dd>' : '') + '</dl>' +
@@ -350,7 +369,7 @@
   }
   function newOT(pre) {
     pre = pre || {};
-    var vals = { equip: flotte()[0].id, type: 'Préventif', priorite: 'Normale', technicien: techs()[0] ? techs()[0].id : '', debut: dt(1, 7).slice(0, 16), fin: dt(1, 16).slice(0, 16), immobilisant: 'oui', prestation: 0 };
+    var vals = { equip: (flotte()[0] || {}).id, type: 'Préventif', priorite: 'Normale', technicien: techs()[0] ? techs()[0].id : '', debut: dt(1, 7).slice(0, 16), fin: dt(1, 16).slice(0, 16), immobilisant: 'oui', prestation: 0 };
     Object.keys(pre).forEach(function (k) { if (pre[k] != null && pre[k] !== '') vals[k] = pre[k]; });
     U.formModal({ title: 'Nouvel ordre de travail', sub: 'Soumis à validation du chef du service technique', size: 'lg', fields: [
       { name: 'equip', label: 'Équipement', type: 'select', options: eqOpts(), required: true },
@@ -364,7 +383,7 @@
       { name: 'description', label: 'Description', type: 'textarea' }
     ], values: vals, okLabel: 'Créer l\'OT', onSubmit: function (v) {
       if (v.fin < v.debut) { U.toast('La fin doit suivre le début.', 'err'); return false; }
-      var o = S.add('ordres', { id: S.next('OT'), equip: v.equip, type: v.type, titre: v.titre, priorite: v.priorite, technicien: v.technicien, debut: v.debut, fin: v.fin, immobilisant: v.immobilisant === 'oui', prestation: +v.prestation || 0, description: v.description, statut: 'À valider', pieces: [], heuresMO: 0, plan: pre.plan || '', cree: now(), historique: [{ at: now(), user: me(), action: 'OT créé' }] });
+      var o = S.add('ordres', { id: S.next('OT'), site: (eq(v.equip) || {}).site || E.scope() || 'OWE', equip: v.equip, type: v.type, titre: v.titre, priorite: v.priorite, technicien: v.technicien, debut: v.debut, fin: v.fin, immobilisant: v.immobilisant === 'oui', prestation: +v.prestation || 0, description: v.description, statut: 'À valider', pieces: [], heuresMO: 0, plan: pre.plan || '', cree: now(), historique: [{ at: now(), user: me(), action: 'OT créé' }] });
       E.log('OT créé', o.id + ' · ' + o.equip + ' · ' + o.titre, MOD); E.notify('Ordre de travail à valider', o.equip + ' — ' + o.titre, '#/maintenance/ordres/' + o.id, 'orange');
       U.toast(o.id + ' créé, en attente de validation.'); refresh();
     } });
@@ -381,9 +400,9 @@
       { name: 'symptome', label: 'Symptôme constaté', required: true, full: true, placeholder: 'ex. fuite hydraulique, alarme moteur, bruit anormal…' },
       { name: 'gravite', label: 'Gravité', type: 'select', full: true, options: [{ v: 'hs', l: 'Hors service — arrêt immédiat' }, { v: 'deg', l: 'Fonctionnement dégradé — maintenance à prévoir' }, { v: 'min', l: 'Mineur — reste en service' }] },
       { name: 'description', label: 'Circonstances', type: 'textarea' }
-    ], values: { equip: eid || flotte()[0].id, gravite: 'deg' }, okLabel: 'Déclarer', onSubmit: function (v) {
+    ], values: { equip: eid || (flotte()[0] || {}).id, gravite: 'deg' }, okLabel: 'Déclarer', onSubmit: function (v) {
       var e = eq(v.equip), g = v.gravite;
-      var o = S.add('ordres', { id: S.next('OT'), equip: v.equip, type: 'Correctif', titre: v.symptome, priorite: g === 'hs' ? 'Urgente' : g === 'deg' ? 'Haute' : 'Normale', technicien: techs()[0] ? techs()[0].id : '', debut: now(), fin: (g === 'hs' ? d(1) : d(3)) + 'T17:00', immobilisant: g !== 'min', arretDebut: g !== 'min' ? now() : '', description: v.description, statut: 'À valider', pieces: [], heuresMO: 0, cree: now(), historique: [{ at: now(), user: me(), action: 'Panne déclarée' + (g === 'hs' ? ' — équipement hors service' : g === 'deg' ? ' — équipement en maintenance' : '') }] });
+      var o = S.add('ordres', { id: S.next('OT'), site: (e || {}).site || E.scope() || 'OWE', equip: v.equip, type: 'Correctif', titre: v.symptome, priorite: g === 'hs' ? 'Urgente' : g === 'deg' ? 'Haute' : 'Normale', technicien: techs()[0] ? techs()[0].id : '', debut: now(), fin: (g === 'hs' ? d(1) : d(3)) + 'T17:00', immobilisant: g !== 'min', arretDebut: g !== 'min' ? now() : '', description: v.description, statut: 'À valider', pieces: [], heuresMO: 0, cree: now(), historique: [{ at: now(), user: me(), action: 'Panne déclarée' + (g === 'hs' ? ' — équipement hors service' : g === 'deg' ? ' — équipement en maintenance' : '') }] });
       if (e && g === 'hs') e.statut = 'Hors service'; else if (e && g === 'deg') e.statut = 'En maintenance'; S.save();
       E.log('Panne déclarée', v.equip + ' · ' + v.symptome, MOD);
       E.notify('Panne : ' + v.equip, v.symptome + (g === 'hs' ? ' — hors service' : ''), '#/maintenance/ordres/' + o.id, g === 'hs' ? 'red' : 'orange');
@@ -409,7 +428,7 @@
   }
   function exportTab() {
     if (st.tab === 'preventif') return U.exportCSV('plans-maintenance-gpm', [{ label: 'Équipement', csv: function (x) { return x.p.equip; } }, { label: 'Opération', csv: function (x) { return x.p.libelle; } }, { label: 'Type', csv: function (x) { return x.p.type; } }, { label: 'Intervalle', csv: function (x) { return x.p.intervalle + (x.p.type === 'Heures' ? ' h' : ' j'); } }, { label: 'Dernière (h)', csv: function (x) { return x.p.dernierH || ''; } }, { label: 'Dernière (date)', csv: function (x) { return x.p.dernierDate; } }, { label: 'Reste', csv: function (x) { return x.s.reste + ' ' + x.s.unit; } }, { label: 'Échéance estimée', csv: function (x) { return x.s.due; } }, { label: 'État', csv: function (x) { return x.s.label; } }], dueList());
-    U.exportCSV('ordres-de-travail-gpm', [{ label: 'N°', key: 'id' }, { label: 'Équipement', key: 'equip' }, { label: 'Intervention', key: 'titre' }, { label: 'Type', key: 'type' }, { label: 'Priorité', key: 'priorite' }, { label: 'Technicien', csv: function (o) { return E.empName(o.technicien); } }, { label: 'Début', key: 'debut' }, { label: 'Fin', key: 'fin' }, { label: 'Immobilisant', csv: function (o) { return o.immobilisant ? 'oui' : 'non'; } }, { label: 'Coût (FCFA)', csv: cost }, { label: 'Statut', key: 'statut' }], otRows());
+    U.exportCSV('ordres-de-travail-gpm', [{ label: 'N°', key: 'id' }, { label: 'Équipement', key: 'equip' }, { label: 'Intervention', key: 'titre' }, { label: 'Type', key: 'type' }, { label: 'Priorité', key: 'priorite' }, { label: 'Technicien', csv: function (o) { return empName(o.technicien); } }, { label: 'Début', key: 'debut' }, { label: 'Fin', key: 'fin' }, { label: 'Immobilisant', csv: function (o) { return o.immobilisant ? 'oui' : 'non'; } }, { label: 'Coût (FCFA)', csv: cost }, { label: 'Statut', key: 'statut' }], otRows());
   }
 
   /* ------------------------------------------------------------------ intégration */

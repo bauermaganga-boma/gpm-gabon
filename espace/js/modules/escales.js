@@ -44,15 +44,18 @@
   function poste(id) { return S.get('postes', id); }
   function posteCourt(id) { var p = poste(id); return p ? p.nom.replace('Owendo · ', '').replace('Port-Gentil · ', '') : id || '—'; }
   function siteCourt(id) { return id === 'POG' ? 'Port-Gentil' : id === 'OWE' ? 'Owendo' : id || '—'; }
+  /* Espace actif : en espace de site, tout est limité au site ; en vue globale (DG), filtre au choix. */
+  function curSite() { return E.scope() || state.site; }
+  function siteSub(id) { return E.scope() ? '' : siteCourt(id); }
   function user() { var u = E.session.user(); return u ? u.name : 'Système'; }
-  function nextId() { var n = Math.max.apply(null, S.all('escales').map(function (x) { var m = String(x.id).match(/(\d+)$/); return m ? +m[1] : 0; }).concat([423])) + 1; return 'ESC-2026-' + String(n).padStart(4, '0'); }
+  function nextId() { var n = Math.max.apply(null, S.raw('escales').map(function (x) { var m = String(x.id).match(/(\d+)$/); return m ? +m[1] : 0; }).concat([423])) + 1; return 'ESC-2026-' + String(n).padStart(4, '0'); }
   function addHisto(e, txt) { e.histo = e.histo || []; e.histo.push({ at: nowISO(), txt: txt, user: user() }); }
   function tone(st) { return TONE[st] || 'grey'; }
   function badge(st) { return U.badge(st, tone(st)); }
 
   /* ------------------------------------------------------------------ calculs */
   function escales() { return S.all('escales'); }
-  function bySite(list) { return state.site ? list.filter(function (e) { return e.site === state.site; }) : list; }
+  function bySite(list) { var s = curSite(); return s ? list.filter(function (e) { return e.site === s; }) : list; }
   function startOf(e) { return ms(e.ata || e.eta); }
   function endOf(e) { if (e.atd) return ms(e.atd); var t = ms(e.etd); if (ONQUAY.indexOf(e.statut) >= 0 && t < Date.now()) return Date.now() + 36e5; return t; }
   function actives() { return escales().filter(function (e) { return e.statut !== 'Appareillé' && e.statut !== 'Annulée'; }); }
@@ -75,7 +78,8 @@
   /* Demandes reçues par le formulaire du site public (localStorage gpm_demandes_escale_site) */
   function demandes() { try { return GD && GD.demandesEscale ? GD.demandesEscale() : []; } catch (e) { return []; } }
   function traitees() { return S.all('demandesTraitees'); }
-  function demandesOuvertes() { var ids = traitees().map(function (t) { return t.id; }); return demandes().filter(function (d) { return ids.indexOf(d.id) < 0; }); }
+  /* une demande n'apparaît que dans l'espace du port demandé (et en vue globale) */
+  function demandesOuvertes() { var sc = E.scope(), ids = S.raw('demandesTraitees').map(function (t) { return t.id; }); return demandes().filter(function (d) { return ids.indexOf(d.id) < 0 && (!sc || demSite(d) === sc); }); }
   function aConfirmer() { return escales().filter(function (e) { return e.statut === 'Annoncée'; }); }
 
   /* Contrôles : compatibilité tirant d'eau / poste, chevauchement sur un même poste */
@@ -148,12 +152,12 @@
     if (p0 && TABS.some(function (t) { return t.k === p0; })) state.tab = p0;
     else if (p0) { view.innerHTML = '<div class="card"><div class="empty">' + E.icon('alert') + '<div>Escale « ' + esc(p0) + ' » introuvable.</div><a class="btn" style="margin-top:12px" href="#/escales">Retour aux escales</a></div></div>'; return; }
     var tab = state.tab;
-    var site = state.site, q = bySite(aQuai()), r = bySite(enRade()), att = bySite(attendus(72)), occ = occupation(site, 7), dm = dureeMoyenne(site);
+    var sc = E.scope(), site = curSite(), q = bySite(aQuai()), r = bySite(enRade()), att = bySite(attendus(72)), occ = occupation(site, 7), dm = dureeMoyenne(site);
     var occNow = S.all('postes').filter(function (p) { return (!site || p.site === site) && aQuai().some(function (e) { return e.poste === p.id; }); }).length;
     var nPostes = S.all('postes').filter(function (p) { return !site || p.site === site; }).length;
     var dem = demandesOuvertes().length;
     var head =
-      '<div class="esc-head"><div class="chips" id="esc-site">' + [['', 'Tous les ports'], ['OWE', 'Owendo'], ['POG', 'Port-Gentil']].map(function (c) { return '<button class="chip' + (state.site === c[0] ? ' is-active' : '') + '" data-k="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div><span class="spacer"></span>' +
+      '<div class="esc-head">' + (sc ? '<div class="esc-port">' + E.icon('pin') + '<b>' + esc(E.siteName(sc)) + '</b><span>' + nPostes + ' poste(s) à quai</span></div>' : '<div class="chips" id="esc-site">' + [['', 'Tous les ports'], ['OWE', 'Owendo'], ['POG', 'Port-Gentil']].map(function (c) { return '<button class="chip' + (state.site === c[0] ? ' is-active' : '') + '" data-k="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div>') + '<span class="spacer"></span>' +
       '<button class="btn primary" id="esc-new">' + E.icon('plus') + 'Nouvelle escale</button></div>' +
       '<div class="grid g4 esc-kpis">' +
         U.kpi({ label: 'Navires à quai', value: q.length, icon: 'anchor', tone: 'violet', foot: r.length ? r.length + ' en rade en attente de poste' : 'aucun navire en rade' }) +
@@ -163,8 +167,8 @@
       '</div>';
     var counts = { quai: q.length + r.length, attendus: bySite(escales().filter(function (e) { return e.statut === 'Annoncée' || e.statut === 'Confirmée'; })).length, demandes: dem || null, avis: S.all('avis').length };
     view.innerHTML = head + U.tabs(TABS.map(function (t) { return { k: t.k, l: t.l, n: counts[t.k] }; }), tab, function (k) { state.tab = k; E.go('escales/' + k); }) + '<div id="esc-body"></div>';
-    view.querySelector('#esc-site').addEventListener('click', function (ev) { var b = ev.target.closest('.chip'); if (b) { state.site = b.dataset.k; E.rerender(); } });
-    view.querySelector('#esc-new').onclick = function () { escaleForm(null, state.site ? { site: state.site } : {}); };
+    var chipsEl = view.querySelector('#esc-site'); if (chipsEl) chipsEl.addEventListener('click', function (ev) { var b = ev.target.closest('.chip'); if (b) { state.site = b.dataset.k; E.rerender(); } });
+    view.querySelector('#esc-new').onclick = function () { escaleForm(null, site ? { site: site } : {}); };
     var body = view.querySelector('#esc-body');
     ({ plan: vPlan, quai: vQuai, attendus: vAttendus, historique: vHisto, demandes: vDemandes, avis: vAvis })[tab](body);
     tabIntoView(view);
@@ -224,7 +228,7 @@
     setTimeout(function () { var lab = window.innerWidth <= 640 ? 112 : 190; pl.scrollLeft = Math.max(0, (pl.scrollWidth - lab) * nowX - (pl.clientWidth - lab) * 0.3); });
   }
   function vPlan(el) {
-    var site = state.site, occ = occupation(site, 7);
+    var site = curSite(), occ = occupation(site, 7);
     el.innerHTML =
       '<div class="card"><div class="card__h"><h3>Plan de quai</h3><span class="sub">Escales par poste · cliquez sur une escale pour l\'ouvrir, sur un espace libre pour programmer</span><span class="spacer"></span>' +
         '<div class="chips" id="esc-days">' + [7, 10].map(function (n) { return '<button class="chip' + (state.days === n ? ' is-active' : '') + '" data-k="' + n + '">' + n + ' jours</button>'; }).join('') + '</div></div>' +
@@ -232,7 +236,7 @@
         '<div class="card__b"><div class="legend">' + CYCLE.map(function (s) { return '<span><i style="background:' + COL[s] + '"></i>' + esc(s) + '</span>'; }).join('') + '<span><i class="esc-lg-plan"></i>Prévu (non arrivé)</span><span><i style="background:var(--red);width:2px"></i>Maintenant</span><span><i class="esc-lg-clash"></i>Chevauchement</span></div></div></div>' +
       '<div class="grid g-2-1" style="margin-top:16px">' +
         '<div class="card"><div class="card__h"><h3>Occupation des postes</h3><span class="sub">7 prochains jours · temps réservé par les escales</span></div><div class="card__b esc-occ">' +
-          occ.per.map(function (o) { return '<div class="esc-occ__row"><div><b>' + esc(posteCourt(o.p.id)) + '</b><span>' + esc(siteCourt(o.p.site)) + ' · ' + esc(o.p.type) + '</span></div>' + U.progress(o.pct, o.pct > 85 ? 'red' : o.pct > 60 ? 'orange' : 'green') + '</div>'; }).join('') + '</div></div>' +
+          occ.per.map(function (o) { return '<div class="esc-occ__row"><div><b>' + esc(posteCourt(o.p.id)) + '</b><span>' + (siteSub(o.p.site) ? esc(siteSub(o.p.site)) + ' · ' : '') + esc(o.p.type) + '</span></div>' + U.progress(o.pct, o.pct > 85 ? 'red' : o.pct > 60 ? 'orange' : 'green') + '</div>'; }).join('') + '</div></div>' +
         '<div class="card"><div class="card__h"><h3>Mouvements à venir</h3><span class="sub">48 h</span></div>' + mouvementsList(site) + '</div>' +
       '</div>';
     el.querySelector('#esc-days').addEventListener('click', function (ev) { var b = ev.target.closest('.chip'); if (b) { state.days = +b.dataset.k; vPlan(el); } });
@@ -280,7 +284,7 @@
       { key: 'id', label: 'Escale', render: function (e) { return '<span class="mono">' + esc(e.id) + '</span>'; } },
       { key: 'eta', label: 'ETA', render: function (e) { return '<span class="nowrap">' + fdt(e.eta) + '</span><div class="small muted">' + rel(e.eta) + '</div>'; } },
       { key: 'etd', label: 'ETD', render: function (e) { return '<span class="nowrap">' + fdt(e.etd) + '</span>'; } },
-      { key: 'poste', label: 'Poste', render: function (e) { return esc(posteCourt(e.poste)) + '<div class="small muted">' + siteCourt(e.site) + '</div>'; }, csv: function (e) { return E.posteName(e.poste); } },
+      { key: 'poste', label: 'Poste', render: function (e) { return esc(posteCourt(e.poste)) + (siteSub(e.site) ? '<div class="small muted">' + siteSub(e.site) + '</div>' : ''); }, csv: function (e) { return E.posteName(e.poste); } },
       { key: 'te', label: 'LOA / TE', num: 1, render: function (e) { return e.loa + ' m · ' + F.num(e.te, 1) + ' m'; } },
       { key: 'client', label: 'Client', render: function (e) { return esc(clientNom(e.client)); }, csv: function (e) { return clientNom(e.client); } },
       { key: 'statut', label: 'Statut', render: function (e) { return badge(e.statut); } },
@@ -300,7 +304,7 @@
     var cols = [
       { key: 'id', label: 'Escale', render: function (e) { return '<span class="mono">' + esc(e.id) + '</span>'; } },
       { key: 'navire', label: 'Navire', render: function (e) { return '<b>' + esc(e.navire) + '</b><div class="small muted">' + esc(e.type) + '</div>'; }, csv: function (e) { return e.navire; } },
-      { key: 'poste', label: 'Poste', render: function (e) { return esc(posteCourt(e.poste)) + '<div class="small muted">' + siteCourt(e.site) + '</div>'; }, csv: function (e) { return E.posteName(e.poste); } },
+      { key: 'poste', label: 'Poste', render: function (e) { return esc(posteCourt(e.poste)) + (siteSub(e.site) ? '<div class="small muted">' + siteSub(e.site) + '</div>' : ''); }, csv: function (e) { return E.posteName(e.poste); } },
       { key: 'ata', label: 'Accostage', render: function (e) { return fdt(e.ata); } },
       { key: 'atd', label: 'Appareillage', render: function (e) { return fdt(e.atd); } },
       { key: 'duree', label: 'Durée', num: 1, render: function (e) { return dur(sejour(e)); }, csv: function (e) { var s = sejour(e); return s == null ? '' : Math.round(s); } },
@@ -345,8 +349,9 @@
     E.$$('[data-ref]', el).forEach(function (b) { b.onclick = function () { refuser(b.dataset.ref); }; });
     var sim = el.querySelector('#esc-sim'); if (sim) sim.onclick = function () {
       if (!GD || !GD.demanderEscale) { U.toast('Données du site indisponibles.', 'err'); return; }
-      GD.demanderEscale({ navire: 'MV Atlantic Lambaréné', imo: '9700031', pavillon: 'Libéria', type: 'Porte-conteneurs', loa: 178, te: 9.2, site: 'OWE', port: 'Owendo (Libreville)', eta: dt(6, 6), etd: dt(7, 18), operations: 'Déchargement / chargement conteneurs', volume: '860 EVP', services: ['pilotage', 'remorquage', 'amarrage', 'manutention'], consignataire: 'Équateur Maritime Agency (démo)', contact: 'Mireille Ondo', email: 'operations@ema-demo.ga', telephone: '+241 07 45 12 88', message: 'Merci de confirmer le poste et le pilotage d\'entrée.', statut: 'Nouvelle', source: 'site' });
-      E.log('Demande d\'escale simulée (site public)', 'MV Atlantic Lambaréné', 'escales'); U.toast('Demande d\'escale reçue du site (simulation)'); E.renderBadges(); vDemandes(el);
+      var simD = curSite() === 'POG' ? { navire: 'PSV Gentil Provider', imo: '9700032', pavillon: 'Gabon', type: 'Ravitailleur offshore', loa: 74, te: 6.0, site: 'POG', port: 'Port-Gentil', eta: dt(5, 7), etd: dt(6, 16), operations: 'Chargement matériel offshore, eau douce et gasoil marin', services: ['pilotage', 'amarrage', 'eau douce', 'soutage'], consignataire: 'Offshore Supply Gabon (démo)', contact: 'Hervé Moussavou', email: 'ops@osg-demo.ga', telephone: '+241 07 52 30 14', message: 'Merci de confirmer le créneau au quai offshore.', statut: 'Nouvelle', source: 'site' } : null;
+      if (simD) GD.demanderEscale(simD); else GD.demanderEscale({ navire: 'MV Atlantic Lambaréné', imo: '9700031', pavillon: 'Libéria', type: 'Porte-conteneurs', loa: 178, te: 9.2, site: 'OWE', port: 'Owendo (Libreville)', eta: dt(6, 6), etd: dt(7, 18), operations: 'Déchargement / chargement conteneurs', volume: '860 EVP', services: ['pilotage', 'remorquage', 'amarrage', 'manutention'], consignataire: 'Équateur Maritime Agency (démo)', contact: 'Mireille Ondo', email: 'operations@ema-demo.ga', telephone: '+241 07 45 12 88', message: 'Merci de confirmer le poste et le pilotage d\'entrée.', statut: 'Nouvelle', source: 'site' });
+      E.log('Demande d\'escale simulée (site public)', simD ? simD.navire : 'MV Atlantic Lambaréné', 'escales'); U.toast('Demande d\'escale reçue du site (simulation)'); E.renderBadges(); vDemandes(el);
     };
   }
   function accepter(id) {
@@ -357,7 +362,7 @@
     if (!v.etd) v.etd = isoDT(new Date(ms(v.eta) + 36 * 36e5));
     v.poste = proposerPoste(v);
     escaleForm(null, v, { title: 'Accepter la demande ' + id, ok: 'Accepter et confirmer', statut: 'Confirmée', onDone: function (e) {
-      S.add('demandesTraitees', { id: id, navire: e.navire, demandeur: demField(d, ['consignataire', 'societe', 'entreprise', 'contact', 'nom']), decision: 'Acceptée', escale: e.id, at: new Date().toISOString(), user: user() });
+      S.add('demandesTraitees', { id: id, site: e.site, navire: e.navire, demandeur: demField(d, ['consignataire', 'societe', 'entreprise', 'contact', 'nom']), decision: 'Acceptée', escale: e.id, at: new Date().toISOString(), user: user() });
       E.notify('Demande d\'escale acceptée', e.navire + ' — ' + E.posteName(e.poste) + ' · ETA ' + fdt(e.eta), '#/escales/' + e.id, 'green');
       E.log('Demande d\'escale acceptée ' + id, e.navire + ' → ' + e.id, 'escales');
     } });
@@ -368,7 +373,7 @@
       fields: [{ name: 'motif', label: 'Motif communiqué au demandeur', type: 'select', options: ['Aucun poste compatible disponible à la date demandée', 'Tirant d\'eau incompatible avec les postes', 'Informations incomplètes — merci de renouveler la demande', 'Demande en doublon', 'Autre motif'], required: true, full: true },
         { name: 'detail', label: 'Précisions', type: 'textarea', full: true }],
       onSubmit: function (v) {
-        S.add('demandesTraitees', { id: id, navire: demField(d, ['navire']), demandeur: demField(d, ['consignataire', 'societe', 'entreprise', 'contact', 'nom']), decision: 'Refusée', motif: v.motif + (v.detail ? ' — ' + v.detail : ''), at: new Date().toISOString(), user: user() });
+        S.add('demandesTraitees', { id: id, site: demSite(d), navire: demField(d, ['navire']), demandeur: demField(d, ['consignataire', 'societe', 'entreprise', 'contact', 'nom']), decision: 'Refusée', motif: v.motif + (v.detail ? ' — ' + v.detail : ''), at: new Date().toISOString(), user: user() });
         E.log('Demande d\'escale refusée ' + id, v.motif, 'escales'); U.toast('Demande refusée — motif enregistré'); E.rerender();
       } });
   }
@@ -381,10 +386,10 @@
   }
 
   /* ------------------------------------------------------------------ Avis aux navigateurs */
-  function nextAvis() { var all = S.all('avis').concat(S.all('avisBrouillons'), S.all('avisArchives')); var n = Math.max.apply(null, all.map(function (a) { var m = String(a.id).match(/(\d+)$/); return m ? +m[1] : 0; }).concat([30])) + 1; return 'AVN-2026-' + String(n).padStart(3, '0'); }
+  function nextAvis() { var all = S.raw('avis').concat(S.raw('avisBrouillons'), S.raw('avisArchives')); var n = Math.max.apply(null, all.map(function (a) { var m = String(a.id).match(/(\d+)$/); return m ? +m[1] : 0; }).concat([30])) + 1; return 'AVN-2026-' + String(n).padStart(3, '0'); }
   function avisCard(a, kind) {
     var exp = a.jusqu && a.jusqu < E.today();
-    return '<div class="esc-avis' + (exp ? ' is-exp' : '') + '" style="--c:var(--' + ({ blue: 'blue', orange: 'orange', red: 'red' })[NIV_TONE[a.niveau] || 'blue'] + ')"><div class="esc-avis__h">' + U.badge(a.niveau || 'Information', NIV_TONE[a.niveau] || 'blue') + '<span class="small muted">' + esc(siteCourt(a.site)) + ' · <span class="mono">' + esc(a.id) + '</span></span>' + (exp ? U.badge('Échu', 'grey') : '') + '</div>' +
+    return '<div class="esc-avis' + (exp ? ' is-exp' : '') + '" style="--c:var(--' + ({ blue: 'blue', orange: 'orange', red: 'red' })[NIV_TONE[a.niveau] || 'blue'] + ')"><div class="esc-avis__h">' + U.badge(a.niveau || 'Information', NIV_TONE[a.niveau] || 'blue') + '<span class="small muted">' + (siteSub(a.site) ? esc(siteSub(a.site)) + ' · ' : '') + '<span class="mono">' + esc(a.id) + '</span></span>' + (exp ? U.badge('Échu', 'grey') : '') + '</div>' +
       '<b>' + esc(a.titre) + '</b><p>' + esc(a.texte) + '</p><div class="small muted">Du ' + F.date(a.date) + (a.jusqu ? ' au ' + F.date(a.jusqu) : '') + '</div><div class="esc-avis__f">' +
       (kind === 'pub' ? '<button class="btn sm" data-av="edit" data-id="' + a.id + '" data-c="avis">' + E.icon('edit') + 'Modifier</button><button class="btn sm danger" data-av="retirer" data-id="' + a.id + '">' + E.icon('x') + 'Retirer du site</button>' :
         kind === 'draft' ? '<button class="btn sm" data-av="edit" data-id="' + a.id + '" data-c="avisBrouillons">' + E.icon('edit') + 'Modifier</button><button class="btn sm ghost" data-av="suppr" data-id="' + a.id + '">' + E.icon('trash') + 'Supprimer</button><button class="btn sm success" data-av="publier" data-id="' + a.id + '">' + E.icon('globe') + 'Publier</button>' :
@@ -416,16 +421,16 @@
     U.formModal({ title: isNew ? 'Nouvel avis aux navigateurs' : 'Modifier l\'avis ' + a.id, sub: isNew ? 'Information nautique destinée aux capitaines, pilotes et consignataires' : (col === 'avis' ? 'Avis publié — la modification est visible immédiatement sur le site' : 'Brouillon'), okLabel: isNew ? 'Enregistrer' : 'Enregistrer les modifications',
       fields: [
         { name: 'titre', label: 'Titre', required: true, full: true },
-        { name: 'site', label: 'Port', type: 'select', options: [{ v: 'OWE', l: 'Owendo' }, { v: 'POG', l: 'Port-Gentil' }], required: true },
+        { name: 'site', label: 'Port', type: 'select', options: E.scope() ? [{ v: E.scope(), l: siteCourt(E.scope()) }] : [{ v: 'OWE', l: 'Owendo' }, { v: 'POG', l: 'Port-Gentil' }], required: true },
         { name: 'niveau', label: 'Niveau', type: 'select', options: NIVEAUX, required: true },
         { name: 'date', label: 'En vigueur à partir du', type: 'date', required: true },
         { name: 'jusqu', label: 'Jusqu\'au', type: 'date' },
         { name: 'texte', label: 'Texte de l\'avis', type: 'textarea', required: true, full: true }
       ].concat(isNew ? [{ name: 'pub', label: 'Publication', type: 'select', options: [{ v: 'oui', l: 'Publier immédiatement sur le site' }, { v: 'non', l: 'Enregistrer comme brouillon' }], full: true }] : []),
-      values: a || { site: state.site || 'OWE', niveau: 'Information', date: E.today(), jusqu: E.addDays(E.today(), 7), pub: 'oui' },
+      values: a || { site: curSite() || 'OWE', niveau: 'Information', date: E.today(), jusqu: E.addDays(E.today(), 7), pub: 'oui' },
       onSubmit: function (v) {
         if (v.jusqu && v.jusqu < v.date) { U.toast('La date de fin doit suivre la date de début.', 'err'); return false; }
-        var rec = { titre: v.titre, site: v.site, niveau: v.niveau, date: v.date, jusqu: v.jusqu, texte: v.texte };
+        var rec = { titre: v.titre, site: E.scope() || v.site, niveau: v.niveau, date: v.date, jusqu: v.jusqu, texte: v.texte };
         if (isNew) { rec.id = nextAvis(); S.add(v.pub === 'oui' ? 'avis' : 'avisBrouillons', rec); E.log((v.pub === 'oui' ? 'Avis publié ' : 'Brouillon d\'avis créé ') + rec.id, rec.titre, 'escales'); if (v.pub === 'oui') E.notify('Avis aux navigateurs publié', rec.titre, '#/escales/avis', 'green'); U.toast(v.pub === 'oui' ? 'Avis publié sur le site' : 'Brouillon enregistré'); }
         else { S.update(col, a.id, rec); E.log('Avis modifié ' + a.id, rec.titre, 'escales'); U.toast('Avis mis à jour'); }
         state.tab = 'avis'; E.rerender();
@@ -436,7 +441,7 @@
   function posteOpts() { return S.all('postes').map(function (p) { return { v: p.id, l: p.nom + ' — TE ' + F.num(p.te, 1) + ' m' }; }); }
   function escaleForm(e, preset, opt) {
     opt = opt || {}; var isNew = !e;
-    var vals = e ? E.clone(e) : Object.assign({ type: 'Porte-conteneurs', pavillon: '', evp: 0, eta: dt(2, 8), etd: dt(3, 18), poste: (preset && preset.site === 'POG') ? 'POG-P1' : 'OWE-P1' }, preset || {});
+    var vals = e ? E.clone(e) : Object.assign({ type: 'Porte-conteneurs', pavillon: '', evp: 0, eta: dt(2, 8), etd: dt(3, 18), poste: ((preset && preset.site) || E.scope() || 'OWE') + '-P1' }, preset || {});
     var m = U.formModal({ title: opt.title || (isNew ? 'Nouvelle escale' : 'Modifier l\'escale ' + e.id), sub: isNew ? 'Contrôles automatiques : tirant d\'eau admissible du poste et chevauchement des escales' : esc(e.navire) + ' · ' + esc(e.statut), size: 'lg', okLabel: opt.ok || (isNew ? 'Créer l\'escale' : 'Enregistrer'),
       intro: '<div id="esc-chk" class="esc-chk"></div>',
       fields: [

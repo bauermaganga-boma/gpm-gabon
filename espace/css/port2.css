@@ -333,3 +333,13 @@
 @media (max-width:640px){.fac-doc__brand,.sou-doc__brand{flex-wrap:wrap}.fac-doc__brand span,.sou-doc__brand span{font-size:10.5px}}
 .mnt-ot>*{min-width:0}
 .mnt-ot>*{min-width:0}
+
+/* ======================================================= tableau de bord : bandeau propre à chaque espace de site */
+.dsh-hero__site{display:inline-flex;align-items:center;gap:6px;margin-bottom:6px;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);font-size:12px;font-weight:600;color:#fff}
+.dsh-hero__site svg{width:13px;height:13px;color:var(--yellow)}
+.dsh-hero--POG{background:linear-gradient(120deg,#03241f 0%,#053d34 55%,#0a5c4c 100%)}
+.dsh-hero--POG .dsh-hero__bg{background-image:url(../../assets/img/port-gentil-vue-aerienne.jpg);opacity:.3}
+.dsh-hero--POG .dsh-hero__site svg{color:#3ddc97}
+.dsh-hero--POG .dsh-hero__date,.dsh-hero--POG .dsh-hero__st b small{color:#b8e3d4}
+.dsh-hero--POG p{color:#d6efe6}
+.dsh-hero--POG::after{background:linear-gradient(90deg,#009e60 0 50%,#fcd116 50%)}

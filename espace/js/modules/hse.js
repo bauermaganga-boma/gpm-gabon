@@ -33,15 +33,31 @@
   var ZP = [
     { id: 'OWE-P1', nom: 'Owendo · Poste 1 (conteneurs)' }, { id: 'OWE-P2', nom: 'Owendo · Poste 2 (conteneurs)' }, { id: 'OWE-P3', nom: 'Owendo · Poste 3 (roulier)' }, { id: 'OWE-P4', nom: 'Owendo · Poste 4 (pétrolier et gazier)' },
     { id: 'OWE-PARC', nom: 'Owendo · Parc à conteneurs' }, { id: 'OWE-MAG', nom: 'Owendo · Magasin, bureaux et parc véhicules' }, { id: 'OWE-ATL', nom: 'Owendo · Atelier engins et flotte' }, { id: 'OWE-RADE', nom: 'Owendo · Rade, chenal et navires à flot' },
-    { id: 'POG-QC', nom: 'Port-Gentil · Quai commercial' }, { id: 'POG-SOUT', nom: 'Port-Gentil · Appontement de soutage' }
+    { id: 'POG-QC', nom: 'Port-Gentil · Quai commercial A' }, { id: 'POG-QB', nom: 'Port-Gentil · Quai commercial B (offshore)' }, { id: 'POG-SOUT', nom: 'Port-Gentil · Appontement de soutage' },
+    { id: 'POG-MAG', nom: 'Port-Gentil · Magasin & bureaux de l\'agence' }, { id: 'POG-RADE', nom: 'Port-Gentil · Rade du Cap Lopez' }
   ];
   function uName(id) { var u = ZP.find(function (z) { return z.id === id; }) || S.get('postes', id); return u ? u.nom : (id || '—'); }
   function ent(id) { if (!id || id === 'INT') return 'GPM (interne)'; var f = S.get('fournisseurs', id); return f ? f.nom : id; }
   function empOpts() { return S.all('employes').map(function (e) { return { v: e.id, l: e.nom + ' · ' + e.poste }; }); }
   function entOpts() { return [{ v: 'INT', l: 'GPM (interne)' }].concat(E.options('fournisseurs')); }
-  function uniteOpts() { return ZP.map(function (u) { return { v: u.id, l: u.nom }; }); }
+  /* ---------- espaces par site ---------- */
+  function SC() { return E.scope(); }
+  function siteOf(z) { return String(z || '').slice(0, 4) === 'POG-' ? 'POG' : 'OWE'; }
+  function portName(s) { return s === 'POG' ? 'Port-Gentil' : 'Owendo'; }
+  function portLong(s) { return s === 'POG' ? 'Port de Port-Gentil' : s === 'OWE' ? 'Port d\'Owendo' : 'Ports d\'Owendo et de Port-Gentil'; }
+  var PORT_OPTS = [{ v: 'OWE', l: 'Owendo (Libreville)' }, { v: 'POG', l: 'Port-Gentil' }];
+  function zonesOf(site) { return ZP.filter(function (z) { return !site || siteOf(z.id) === site; }); }
+  function uniteOpts(site) { return zonesOf(site === undefined ? SC() : site).map(function (u) { return { v: u.id, l: u.nom }; }); }
+  function shortZ(id) { return uName(id).replace(/^(Owendo|Port-Gentil) · /, ''); }
+  /* valeurs par défaut des formulaires selon le site actif (employés du site) */
+  var DEFS = {
+    OWE: { zone: 'OWE-P1', dem: M(25), emi: M(34), resp: M(14), aud: M(34), act: M(12), sog: M(25) },
+    POG: { zone: 'POG-QC', dem: M(37), emi: M(36), resp: M(41), aud: M(36), act: M(41), sog: M(36) }
+  };
+  function def(k) { return DEFS[SC() || 'OWE'][k]; }
+  /* numéros séquentiels calculés sur toute la collection (les deux sites) pour éviter les doublons */
   function nextId(col, prefix, width) {
-    var max = 0; S.all(col).forEach(function (x) { if (String(x.id).indexOf(prefix) === 0) { var n = parseInt(String(x.id).slice(prefix.length), 10); if (n > max) max = n; } });
+    var max = 0; S.raw(col).forEach(function (x) { if (String(x.id).indexOf(prefix) === 0) { var n = parseInt(String(x.id).slice(prefix.length), 10); if (n > max) max = n; } });
     return prefix + String(max + 1).padStart(width, '0');
   }
   function yr() { return E.TODAY.getFullYear(); }
@@ -202,12 +218,13 @@
 
     function build(o) {
       var p = Object.assign({ gaz: [], associes: [], prolong: [], secu: {}, dangers: [], epi: [], intervenants: 3, sig: {}, hist: [], surveillant: '' }, o);
+      p.site = p.site || siteOf(p.unite);
       var dem = E.empName(p.demandeur), emi = E.empName(p.emetteur), res = E.empName(p.responsable);
       var idx = FLOW.indexOf(p.statut === 'Suspendu' ? 'En cours' : p.statut);
       var t0 = cl(o.cree || shift(p.debut, -20));
       p.cree = t0; p.sig.demandeur = { nom: dem, at: t0 };
       p.hist = [{ at: t0, statut: 'Demandé', par: dem, note: 'Demande de permis créée' }];
-      if (idx >= 1) { var tp = cl(o.tPrep || shift(p.debut, -14)); p.hist.push({ at: tp, statut: 'Préparé', par: N(34), note: 'Analyse de risques, mesures de sécurité et EPI renseignés' }); }
+      if (idx >= 1) { var tp = cl(o.tPrep || shift(p.debut, -14)); p.hist.push({ at: tp, statut: 'Préparé', par: p.site === 'POG' ? N(37) : N(34), note: 'Analyse de risques, mesures de sécurité et EPI renseignés' }); }
       if (idx >= 2) { var ta = cl(shift(p.debut, -0.75)); p.sig.emetteur = { nom: emi, at: ta }; p.sig.responsable = { nom: res, at: cl(shift(ta, 0.1)) }; p.hist.push({ at: ta, statut: 'Autorisé', par: emi, note: 'Autorisé par l\'émetteur HSE et le responsable de zone' }); }
       if (idx >= 3) { p.sig.executant = { nom: p.executant, at: p.debut }; p.hist.push({ at: p.debut, statut: 'En cours', par: emi, note: 'Ouverture sur le terrain avec l\'exécutant — visite des lieux réalisée' }); }
       if (p.statut === 'Suspendu') p.hist.push({ at: p.suspension.at, statut: 'Suspendu', par: p.suspension.par, note: p.suspension.motif + ' — ' + p.suspension.note });
@@ -239,7 +256,7 @@
         secu: all('LEV'), epi: epi('LEV') }),
       build({ id: PT(409), type: 'H2S', statut: 'En cours', unite: 'OWE-P4', equipement: 'Poste pétrolier · joint de la ligne de déchargement DN250', ot: OT(522), entreprise: 'INT', intervenants: 3,
         description: 'Remplacement d\'un joint sur la ligne de déchargement du poste pétrolier avant l\'arrivée du MT Ogooué Star.',
-        demandeur: M(0), emetteur: M(6), responsable: M(0), surveillant: M(33), executant: N(37), debut: HB(-1), fin: HB(5),
+        demandeur: M(0), emetteur: M(6), responsable: M(0), surveillant: M(33), executant: N(10), debut: HB(-1), fin: HB(5),
         dangers: ['hc', 'atex', 'energie', 'noyade'], mesuresRisques: 'Ligne vidangée et purgée, bac de rétention sous la bride, barrage antipollution prépositionné, outillage antidéflagrant.',
         secu: all('H2S'), epi: epi('H2S'),
         gaz: [g(HB(-2), 'Préparation', 20.9, 0, 0.4, 0, N(33), 'Bride ligne DN250'), g(HB(-1), 'Ouverture', 20.9, 0, 0.2, 0, N(33), 'Bride ligne DN250')] }),
@@ -256,7 +273,7 @@
         suspension: { at: cl(HB(-1)), par: N(34), motif: 'Alerte météo (orage, vent)', note: 'Orage annoncé par la capitainerie — nacelle descendue, équipe à l\'abri.' } }),
       build({ id: PT(404), type: 'ESP', statut: 'Autorisé', unite: 'POG-SOUT', equipement: 'Barge de soutage Mandji · citerne n° 2', ot: OT(527), entreprise: 'INT', intervenants: 3,
         description: 'Inspection visuelle de la citerne n° 2 de la barge de soutage après dégazage (contrôle annuel).',
-        demandeur: M(37), emetteur: M(6), responsable: M(36), surveillant: M(38), executant: N(38), debut: HB(3), fin: HB(9),
+        demandeur: M(37), emetteur: M(36), responsable: M(37), surveillant: M(38), executant: N(38), debut: HB(3), fin: HB(9),
         dangers: ['anoxie', 'atex', 'hc', 'chute'], mesuresRisques: 'Citerne vidée, dégazée et ventilée 24 h, contrôle atmosphère avant chaque entrée, veilleur au trou d\'homme, trépied et treuil de sauvetage.',
         secu: all('ESP', ['balisage']), epi: epi('ESP'), tPrep: HB(-5),
         gaz: [g(HB(-1), 'Préparation', 20.8, 0, 0, 2, N(38), 'Trou d\'homme citerne n° 2')] }),
@@ -287,7 +304,18 @@
         demandeur: M(14), emetteur: M(34), responsable: M(14), debut: dayAt(0, 20), fin: dayAt(1, 4), cree: HB(-2) }),
       build({ id: PT(417), type: 'BORD', statut: 'Demandé', unite: 'POG-QC', equipement: 'PSV Offshore Mandji · treuil de pont', ot: OT(535), entreprise: 'F-006', intervenants: 3,
         description: 'Remplacement du moteur hydraulique du treuil de pont du ravitailleur, à quai à Port-Gentil.',
-        demandeur: M(41), emetteur: M(6), responsable: M(41), debut: dayAt(1, 13), fin: dayAt(1, 19), cree: HB(-2) }),
+        demandeur: M(41), emetteur: M(36), responsable: M(41), debut: dayAt(1, 13), fin: dayAt(1, 19), cree: HB(-2) }),
+      build({ id: PT(419), type: 'H2S', statut: 'En cours', unite: 'POG-SOUT', equipement: 'Appontement de soutage · flexible de livraison n° 2', ot: OT(540), entreprise: 'INT', intervenants: 3,
+        description: 'Remplacement du joint du raccord rapide du flexible de soutage n° 2 avant la livraison au PSV Offshore Mandji.',
+        demandeur: M(37), emetteur: M(36), responsable: M(37), surveillant: M(38), executant: N(38), debut: HB(-2), fin: HB(4),
+        dangers: ['hc', 'atex', 'noyade', 'energie'], mesuresRisques: 'Ligne vidangée et isolée, barrage flottant déployé autour de l\'appontement, kit antipollution à poste, outillage antidéflagrant.',
+        secu: all('H2S', ['gilet']), epi: epi('H2S', ['gilet']),
+        gaz: [g(HB(-3), 'Préparation', 20.9, 0, 0.3, 0, N(38), 'Raccord flexible n° 2'), g(HB(-2), 'Ouverture', 20.9, 0, 0.1, 0, N(38), 'Raccord flexible n° 2')] }),
+      build({ id: PT(420), type: 'LEV', statut: 'En cours', unite: 'POG-QB', equipement: 'Quai B · modules offshore de 28 t pour le PSV Ogooué Supplier', ot: OT(542), entreprise: 'F-006', intervenants: 5,
+        description: 'Chargement de deux modules de 28 t sur le pont du ravitailleur offshore avec la grue de Mandji Transports.',
+        demandeur: M(41), emetteur: M(36), responsable: M(41), executant: 'Nziengui Arsène (chef de manœuvre Mandji Transports)', debut: HB(-1), fin: HB(7),
+        dangers: ['charge', 'coactivite', 'noyade', 'meteo'], mesuresRisques: 'Plan de levage validé, zone d\'évolution balisée, navire amarré et stabilisé, arrêt si vent > 40 km/h.',
+        secu: all('LEV', ['gilet']), epi: epi('LEV', ['gilet']) }),
       build({ id: PT(418), type: 'HAU', statut: 'Demandé', unite: 'OWE-P2', equipement: 'Grue mobile n° 1 · poulies en tête de flèche', ot: OT(538), entreprise: 'INT', intervenants: 3,
         description: 'Contrôle et graissage des poulies en tête de flèche (flèche abaissée sur chevalet).',
         demandeur: M(3), emetteur: M(34), responsable: M(14), debut: dayAt(2, 7), fin: dayAt(2, 15), cree: HB(-1) }),
@@ -305,7 +333,7 @@
         description: 'Remplacement du compresseur de climatisation du bureau d\'exploitation.', demandeur: M(23), emetteur: M(34), responsable: M(3), executant: N(23), debut: dayAt(-6, 8), fin: dayAt(-6, 12),
         dangers: ['elec', 'chute'], mesuresRisques: 'Alimentation consignée, escabeau conforme.', secu: all('GEN'), epi: epi('GEN') }),
       build({ id: PT(402), type: 'LEV', statut: 'Clôturé', unite: 'POG-QC', equipement: 'Colis offshore 45 t · PSV Ogooué Supplier', ot: OT(451), entreprise: 'F-006', intervenants: 5,
-        description: 'Levage d\'un module offshore de 45 t du quai vers le pont du ravitailleur.', demandeur: M(41), emetteur: M(6), responsable: M(41), executant: 'Nziengui Arsène (chef de manœuvre Mandji Transports)', debut: dayAt(-7, 7), fin: dayAt(-7, 18),
+        description: 'Levage d\'un module offshore de 45 t du quai vers le pont du ravitailleur.', demandeur: M(41), emetteur: M(36), responsable: M(41), executant: 'Nziengui Arsène (chef de manœuvre Mandji Transports)', debut: dayAt(-7, 7), fin: dayAt(-7, 18),
         dangers: ['charge', 'coactivite', 'noyade'], mesuresRisques: 'Plan de levage validé, grue 100 t, balisage, élingues contrôlées, navire amarré et stabilisé.', secu: all('LEV'), epi: epi('LEV') })
     ];
 
@@ -341,8 +369,14 @@
       { id: 'PDP-' + Y + '-028', entreprise: 'F-007', travaux: 'Vérification des extincteurs, bouées et moyens de sauvetage des quais', chantier: 'Contrat annuel de maintenance sécurité', zones: ['OWE-P1', 'OWE-P2', 'OWE-P3', 'OWE-P4', 'OWE-PARC', 'OWE-MAG'], debut: D(-100), fin: D(-8), effectif: 3, respEE: 'Lionel Bouanga (technicien sécurité)', respSOG: M(34), statut: 'Actif',
         inspection: { date: D(-104), participants: [N(34) + ' (HSE)', N(33) + ' (Sûreté)', 'Lionel Bouanga (Sécurité Pro Gabon)'], obs: 'Intervention par zone, information du bureau d\'exploitation avant chaque intervention à quai.' },
         interferences: [{ risque: 'Retrait temporaire de moyens de sauvetage', mesure: 'Remplacement immédiat par du matériel de prêt', charge: 'EE' }],
-        habilitations: [{ l: 'Formation incendie', ok: true }, { l: 'Aptitude médicale à jour', ok: true }], accueil: { date: D(-99), personnes: 3 }, sig: { gpm: { nom: N(6), at: D(-103) }, ee: { nom: 'Lionel Bouanga', at: D(-103) } } }
+        habilitations: [{ l: 'Formation incendie', ok: true }, { l: 'Aptitude médicale à jour', ok: true }], accueil: { date: D(-99), personnes: 3 }, sig: { gpm: { nom: N(6), at: D(-103) }, ee: { nom: 'Lionel Bouanga', at: D(-103) } } },
+      { id: 'PDP-' + Y + '-037', entreprise: 'F-006', travaux: 'Levages et manutention de colis offshore aux quais A et B (contrat cadre)', chantier: 'Contrat cadre de levage offshore — Port-Gentil', zones: ['POG-QB', 'POG-QC'], debut: D(-30), fin: D(60), effectif: 7, respEE: 'Arsène Nziengui (chef de manœuvre)', respSOG: M(41), statut: 'Actif',
+        inspection: { date: D(-33), participants: [N(36) + ' (Chef d\'agence)', N(41) + ' (Chef de quai)', 'Arsène Nziengui (Mandji Transports)'], obs: 'Calage des grues sur plaques de répartition au quai B ; coordination avec les ravitailleurs offshore.' },
+        interferences: [{ risque: 'Charges suspendues au-dessus des ravitailleurs et des équipes de quai', mesure: 'Plans de levage validés, zone d\'évolution balisée, liaison VHF avec la passerelle', charge: 'EE' }, { risque: 'Coactivité avec le soutage à l\'appontement voisin', mesure: 'Planning partagé avec le service soutage, aucune opération simultanée au droit de l\'appontement', charge: 'GPM' }],
+        habilitations: [{ l: 'CACES grue mobile / autorisation de conduite', ok: true }, { l: 'Élingueurs habilités', ok: true }, { l: 'Aptitude médicale à jour', ok: true }, { l: 'Badges d\'accès ISPS', ok: true }],
+        accueil: { date: D(-29), personnes: 7 }, sig: { gpm: { nom: N(36), at: D(-32) }, ee: { nom: 'Arsène Nziengui', at: D(-32) } } }
     ];
+    plans.forEach(function (p) { p.site = siteOf(p.zones[0]); });
 
     function ev(o) {
       var d = D(o.off);
@@ -372,8 +406,10 @@
       ev({ n: 79, off: -9, type: 'PA', gravite: 4, unite: 'OWE-P2', lieu: 'Poste 2', titre: 'Charge suspendue au-dessus d\'une équipe de pointeurs', description: 'Lors d\'une opération de grue, un conteneur est passé au-dessus de deux pointeurs non informés du changement de séquence.', declarant: M(34), statut: 'En analyse', h: '15:05', mesuresImm: 'Arrêt de la grue, briefing de l\'équipe, révision des zones d\'exclusion.',
         causes: { methode: 'Arbre des causes', facteurs: { 'Méthode': ['Zone d\'exclusion sous charge non balisée'], 'Management': ['Changement de séquence non communiqué'], 'Main-d\'œuvre': ['Signaleur sans visibilité directe'], 'Matériel': ['Radio du signaleur défaillante'], 'Milieu': ['Deux navires opérés simultanément'] } } }),
       ev({ n: 82, off: -3, type: 'POL', gravite: 2, unite: 'OWE-P4', lieu: 'Poste pétrolier', titre: 'Égouttures d\'hydrocarbures à la déconnexion d\'un flexible', description: 'Égouttures (environ 5 L) au moment de la déconnexion d\'un flexible du manifold d\'un pétrolier. Contenues sur le quai par absorbants.', declarant: M(0), statut: 'En analyse', h: '04:50', mesuresImm: 'Absorbants, nettoyage du quai, contrôle de la mer autour du poste.' }),
-      ev({ n: 85, off: -1, type: 'SD', gravite: 2, unite: 'OWE-P1', lieu: 'Poste 1', titre: 'Bouée couronne manquante au poste 1', description: 'La bouée couronne du support n° 3 est absente (retirée pour remplacement sans matériel de prêt).', declarant: M(33), statut: 'Déclaré', h: '08:20' })
+      ev({ n: 85, off: -1, type: 'SD', gravite: 2, unite: 'OWE-P1', lieu: 'Poste 1', titre: 'Bouée couronne manquante au poste 1', description: 'La bouée couronne du support n° 3 est absente (retirée pour remplacement sans matériel de prêt).', declarant: M(33), statut: 'Déclaré', h: '08:20' }),
+      ev({ n: 88, off: -2, type: 'PA', gravite: 3, unite: 'POG-QB', lieu: 'Quai commercial B · pont d\'un ravitailleur', titre: 'Colis offshore balancé par la houle pendant le levage', description: 'Lors du chargement d\'un conteneur offshore, la houle a fait rouler le ravitailleur : le colis a balancé à moins d\'un mètre d\'un matelot resté sous la charge.', declarant: M(41), statut: 'Actions en cours', h: '16:40', mesuresImm: 'Arrêt du levage, reprise avec cordes de guidage et matelots dégagés de la zone.' })
     ];
+    incidents.forEach(function (i) { i.site = siteOf(i.unite); });
     var A = function (n, src, lib, resp, ech, st, prio) { return { id: 'ACT-' + Y + '-' + String(n).padStart(3, '0'), source: src, libelle: lib, responsable: M(resp), echeance: D(ech), statut: st, priorite: prio || 'Moyenne', creee: D(Math.min(ech - 30, -2)) }; };
     var e = function (off, n) { return 'EV-' + D(off).slice(0, 4) + '-0' + n; };
     var actions = [
@@ -394,7 +430,9 @@
       A(102, e(-240, 52), 'Renforcer l\'équipe de lamanage lors des arrivées simultanées', 13, -190, 'Réalisée', 'Moyenne'),
       A(108, 'AUD-' + Y + '-014', 'Remplacer 6 extincteurs périmés au parc à conteneurs', 33, -18, 'En cours', 'Moyenne'),
       A(109, 'AUD-' + Y + '-016', 'Repeindre le marquage des voies piétonnes du terre-plein', 20, 25, 'À faire', 'Basse'),
-      A(110, 'AUD-' + Y + '-017', 'Exiger le registre de vérification des élingues de Mandji Transports', 4, -6, 'À faire', 'Moyenne'),
+      A(110, 'AUD-' + Y + '-017', 'Exiger le registre de vérification des élingues de Mandji Transports', 41, -6, 'À faire', 'Moyenne'),
+      A(132, e(-2, 88), 'Imposer les cordes de guidage pour tout levage sur un ravitailleur à quai', 41, 5, 'En cours', 'Haute'),
+      A(133, e(-2, 88), 'Fixer un seuil de houle au-delà duquel les levages offshore sont suspendus', 36, 12, 'À faire', 'Moyenne'),
       A(114, 'AUD-' + Y + '-018', 'Former 4 nouveaux émetteurs de permis (chefs de quai adjoints)', 34, 30, 'En cours', 'Moyenne'),
       A(116, 'AUD-' + Y + '-019', 'Réparer l\'éclairage de l\'échelle de quai du poste 1', 23, 4, 'À faire', 'Moyenne')
     ];
@@ -406,28 +444,44 @@
       Au(14, -40, 'Visite terrain', 'OWE-PARC', '', 33, 'Moyens de lutte incendie du parc à conteneurs', 'Réalisé', 79, 3, [{ txt: '6 extincteurs à date de vérification dépassée', niv: 'Mineur' }, { txt: 'Poteau incendie PI-4 masqué par une pile de conteneurs', niv: 'Majeur' }, { txt: 'Accès pompiers encombré', niv: 'Mineur' }]),
       Au(15, -31, 'Audit permis de travail', 'OWE-P3', '', 6, 'Conformité des permis affichés sur le terrain (12 permis contrôlés)', 'Réalisé', 84, 2, [{ txt: '1 permis non affiché au poste de travail', niv: 'Mineur' }, { txt: '1 mesure de gaz de contrôle non tracée', niv: 'Mineur' }]),
       Au(16, -24, 'Visite terrain', 'OWE-PARC', '', 20, 'Circulation piétons / engins dans le parc', 'Réalisé', 82, 2, [{ txt: 'Marquage des voies piétonnes effacé', niv: 'Mineur' }, { txt: 'Chauffeurs hors cabine en zone d\'évolution', niv: 'Mineur' }]),
-      Au(17, -16, 'Audit entreprise extérieure', 'POG-QC', 'F-006', 34, 'Levage : plans de levage, élingues, habilitations', 'Réalisé', 76, 3, [{ txt: 'Registre de vérification des élingues non disponible', niv: 'Majeur' }, { txt: 'Plan de levage non signé par le chef de manœuvre', niv: 'Mineur' }, { txt: 'Bon balisage de la zone', niv: 'Observation' }]),
+      Au(17, -16, 'Audit entreprise extérieure', 'POG-QC', 'F-006', 36, 'Levage : plans de levage, élingues, habilitations', 'Réalisé', 76, 3, [{ txt: 'Registre de vérification des élingues non disponible', niv: 'Majeur' }, { txt: 'Plan de levage non signé par le chef de manœuvre', niv: 'Mineur' }, { txt: 'Bon balisage de la zone', niv: 'Observation' }]),
       Au(18, -10, 'Audit permis de travail', 'OWE-P1', '', 6, 'Processus d\'émission : compétences des émetteurs', 'Réalisé', 87, 1, [{ txt: 'Manque d\'émetteurs habilités en shift de nuit', niv: 'Mineur' }]),
       Au(19, -6, 'Visite terrain', 'OWE-P1', '', 0, 'Visite de la direction — quais d\'Owendo', 'Réalisé', 90, 1, [{ txt: 'Éclairage de l\'échelle de quai du poste 1 défaillant', niv: 'Mineur' }]),
       Au(20, -2, 'Quart d\'heure sécurité', 'OWE-P3', '', 34, 'Lamanage : zones de fouet des aussières — retour d\'expérience', 'Réalisé', 92, 0, []),
       Au(21, 4, 'Audit entreprise extérieure', 'OWE-P3', 'F-001', 6, 'Soudure et plongée : chantier des défenses du poste 3', 'Planifié', null, null, []),
-      Au(22, 9, 'Exercice POI / POLMAR', 'POG-SOUT', '', 33, 'Exercice POLMAR : fuite de gasoil marin à l\'appontement de soutage', 'Planifié', null, null, []),
-      Au(23, 15, 'Visite terrain', 'OWE-MAG', '', 6, 'Visite managériale — magasin et parc véhicules', 'Planifié', null, null, [])
+      Au(22, 9, 'Exercice POI / POLMAR', 'POG-SOUT', '', 37, 'Exercice POLMAR : fuite de gasoil marin à l\'appontement de soutage', 'Planifié', null, null, []),
+      Au(23, 15, 'Visite terrain', 'OWE-MAG', '', 6, 'Visite managériale — magasin et parc véhicules', 'Planifié', null, null, []),
+      Au(24, -37, 'Visite terrain', 'POG-SOUT', '', 36, 'Visite managériale — appontement de soutage et barge Mandji', 'Réalisé', 86, 2, [{ txt: 'Kit antipollution incomplet (absorbants)', niv: 'Mineur' }, { txt: 'Étiquetage des flexibles à reprendre', niv: 'Mineur' }]),
+      Au(25, 12, 'Quart d\'heure sécurité', 'POG-QB', '', 41, 'Levages offshore : houle, cordes de guidage et zone sous charge', 'Planifié', null, null, [])
     ];
+    audits.forEach(function (a) { a.site = siteOf(a.unite); });
+    var srcSite = function (id) { var x = incidents.concat(audits).find(function (r) { return r.id === id; }); return x ? x.site : 'OWE'; };
+    actions.forEach(function (a) { a.site = srcSite(a.source); });
     /* Statistiques mensuelles (heures travaillées, cartes d'observation, quarts d'heure sécurité, permis) */
     var mois = [];
     var ee = [9000, 8500, 8200, 9600, 10500, 12800, 11200, 9100, 8800, 10200, 13800, 15200], obs = [18, 21, 15, 19, 24, 27, 22, 20, 17, 23, 29, 31], qhs = [22, 21, 18, 22, 22, 23, 22, 21, 20, 22, 22, 22], pm = [48, 52, 41, 50, 58, 66, 61, 51, 46, 59, 74, 82];
-    for (var i = 11; i >= 0; i--) { var dm = new Date(E.TODAY.getFullYear(), E.TODAY.getMonth() - i, 1); var k = 11 - i; mois.push({ id: dm.getFullYear() + '-' + pad(dm.getMonth() + 1), heures: 33500 + (k % 3) * 600 - (k === 2 ? 1400 : 0), heuresEE: ee[k], observations: obs[k], qhs: qhs[k], permis: pm[k] }); }
-    /* qualité des eaux du bassin portuaire (prélèvements mensuels) */
-    var eaux = mois.map(function (m, k) { return { id: m.id, hc: [0.6, 0.5, 0.8, 0.9, 0.7, 2.4, 1.1, 0.8, 0.6, 0.5, 0.9, 1.3][k], mes: [22, 19, 25, 27, 21, 41, 26, 23, 20, 18, 24, 29][k], ph: [7.9, 7.8, 8.0, 7.9, 7.8, 7.6, 7.9, 8.0, 8.0, 7.9, 7.8, 7.8][k], o2: [6.8, 6.9, 6.6, 6.5, 6.7, 5.9, 6.4, 6.6, 6.8, 6.9, 6.5, 6.2][k], navires: [38, 36, 41, 42, 44, 47, 43, 39, 37, 40, 45, 48][k] }; });
+    /* un enregistrement par site et par mois (même id de mois) — Port-Gentil ≈ 25-30 % de l'activité d'Owendo */
+    var pee = [2600, 2400, 2300, 2700, 3100, 3600, 3300, 2600, 2500, 2900, 3900, 4300], pobs = [5, 6, 4, 6, 7, 8, 6, 6, 5, 7, 8, 9], pqhs = [6, 6, 5, 6, 6, 7, 6, 6, 6, 6, 7, 7], ppm = [13, 15, 11, 14, 16, 19, 17, 14, 13, 16, 21, 24];
+    for (var i = 11; i >= 0; i--) {
+      var dm = new Date(E.TODAY.getFullYear(), E.TODAY.getMonth() - i, 1), k = 11 - i, mid = dm.getFullYear() + '-' + pad(dm.getMonth() + 1);
+      mois.push({ id: mid, site: 'OWE', heures: 33500 + (k % 3) * 600 - (k === 2 ? 1400 : 0), heuresEE: ee[k], observations: obs[k], qhs: qhs[k], permis: pm[k] });
+      mois.push({ id: mid, site: 'POG', heures: 9300 + (k % 2) * 300, heuresEE: pee[k], observations: pobs[k], qhs: pqhs[k], permis: ppm[k] });
+    }
+    /* qualité des eaux du bassin portuaire de chaque site (prélèvements mensuels) */
+    var mids = mois.filter(function (m) { return m.site === 'OWE'; }).map(function (m) { return m.id; });
+    var eaux = mids.map(function (id, k) { return { id: id, site: 'OWE', hc: [0.6, 0.5, 0.8, 0.9, 0.7, 2.4, 1.1, 0.8, 0.6, 0.5, 0.9, 1.3][k], mes: [22, 19, 25, 27, 21, 41, 26, 23, 20, 18, 24, 29][k], ph: [7.9, 7.8, 8.0, 7.9, 7.8, 7.6, 7.9, 8.0, 8.0, 7.9, 7.8, 7.8][k], o2: [6.8, 6.9, 6.6, 6.5, 6.7, 5.9, 6.4, 6.6, 6.8, 6.9, 6.5, 6.2][k], navires: [38, 36, 41, 42, 44, 47, 43, 39, 37, 40, 45, 48][k] }; })
+      .concat(mids.map(function (id, k) { return { id: id, site: 'POG', hc: [0.7, 0.8, 0.6, 1.4, 0.9, 0.8, 0.7, 1.1, 0.8, 0.6, 0.7, 0.9][k], mes: [18, 17, 20, 23, 19, 21, 18, 22, 19, 17, 20, 21][k], ph: [8.0, 8.0, 8.1, 7.9, 8.0, 8.0, 8.1, 7.9, 8.0, 8.1, 8.0, 8.0][k], o2: [7.0, 7.1, 6.9, 6.4, 6.8, 6.9, 7.0, 6.6, 6.9, 7.1, 6.9, 6.8][k], navires: [11, 10, 12, 13, 12, 14, 13, 11, 11, 12, 13, 14][k] }; }));
     var mangrove = [
       { id: 'MG-1', station: 'Mangrove d\'Owendo — arrière du parc à conteneurs', date: D(-2), hc: 140, vegetation: 'Stress léger', faune: 'Crabes violonistes présents, densité réduite', statut: 'Surveillance renforcée', obs: 'Prélèvements après les fortes pluies du ' + fmt.date(D(-3)) + ' (exutoire du réseau pluvial). Résultats attendus.' },
       { id: 'MG-2', station: 'Crique d\'Owendo — exutoire du réseau pluvial', date: D(-12), hc: 110, vegetation: 'Bon', faune: 'Périophtalmes, crabes, aigrettes', statut: 'Conforme', obs: 'Séparateur hydrocarbures du réseau pluvial curé ce trimestre.' },
       { id: 'MG-3', station: 'Front de mer — poste pétrolier (poste 4)', date: D(-12), hc: 120, vegetation: 'Bon', faune: 'Huîtres de palétuviers', statut: 'Conforme', obs: '' },
       { id: 'MG-4', station: 'Port-Gentil — abords de l\'appontement de soutage', date: D(-34), hc: 160, vegetation: 'Bon', faune: 'Crabes, oiseaux limicoles', statut: 'Conforme', obs: 'Suivi renforcé lié à l\'activité de soutage.' },
       { id: 'MG-5', station: 'Estuaire du Komo — transect T1', date: D(-34), hc: 90, vegetation: 'Bon', faune: 'Crabes, poissons juvéniles', statut: 'Conforme', obs: '' },
-      { id: 'MG-6', station: 'Station témoin (hors influence portuaire)', date: D(-34), hc: 60, vegetation: 'Bon', faune: 'Référence', statut: 'Référence', obs: 'Station de référence pour comparaison.' }
+      { id: 'MG-6', station: 'Station témoin (hors influence portuaire)', date: D(-34), hc: 60, vegetation: 'Bon', faune: 'Référence', statut: 'Référence', obs: 'Station de référence pour comparaison.' },
+      { id: 'MG-7', station: 'Port-Gentil — mangrove de la baie du Cap Lopez (arrière des quais)', date: D(-20), hc: 150, vegetation: 'Stress léger', faune: 'Crabes, périophtalmes', statut: 'Surveillance renforcée', obs: 'Traces d\'hydrocarbures anciennes sur les racines ; nouveau prélèvement après le curage du séparateur du quai B.' },
+      { id: 'MG-8', station: 'Port-Gentil — station témoin de la pointe Clairette', date: D(-20), hc: 55, vegetation: 'Bon', faune: 'Référence', statut: 'Référence', obs: 'Station de référence du site de Port-Gentil.' }
     ];
+    mangrove.forEach(function (m) { m.site = /Port-Gentil/.test(m.station) ? 'POG' : 'OWE'; });
     var dch = function (n, off, type, cat, q, fil, prest, st) { return { id: 'BSD-' + Y + '-' + String(n).padStart(3, '0'), date: D(off), type: type, categorie: cat, quantite: q, filiere: fil, prestataire: prest, statut: st }; };
     var dechets = [
       dch(88, -3, 'Absorbants et chiffons souillés (exercice et égouttures)', 'Dangereux', 0.6, 'Incinération', 'Gabon Recyclage Industriel (démo)', 'En attente d\'enlèvement'),
@@ -439,8 +493,12 @@
       dch(82, -48, 'Déchets banals (DIB) des quais', 'Non dangereux', 18.2, 'Enfouissement (CET)', 'Mandji Transports', 'Enlevé'),
       dch(81, -60, 'DEEE (matériel informatique)', 'Dangereux', 0.8, 'Recyclage', 'Gabon Recyclage Industriel (démo)', 'Enlevé'),
       dch(80, -75, 'Bois de calage et palettes', 'Non dangereux', 5.5, 'Valorisation matière', 'Mandji Transports', 'Enlevé'),
-      dch(89, 0, 'Filtres à huile et à gasoil usagés', 'Dangereux', 0.4, 'Centre de traitement agréé', 'Gabon Recyclage Industriel (démo)', 'Stocké sur site')
+      dch(89, 0, 'Filtres à huile et à gasoil usagés', 'Dangereux', 0.4, 'Centre de traitement agréé', 'Gabon Recyclage Industriel (démo)', 'Stocké sur site'),
+      dch(90, -6, 'Boues et eaux huileuses de la barge de soutage', 'Dangereux', 2.8, 'Régénération', 'Gabon Recyclage Industriel (démo)', 'Enlevé'),
+      dch(91, -18, 'Ferrailles et élingues réformées (quais A et B)', 'Non dangereux', 3.6, 'Recyclage', 'Mandji Transports', 'Enlevé'),
+      dch(92, -1, 'Absorbants souillés (appontement de soutage)', 'Dangereux', 0.3, 'Incinération', 'Gabon Recyclage Industriel (démo)', 'En attente d\'enlèvement')
     ];
+    dechets.forEach(function (d) { var n = +d.id.slice(-3); d.site = n >= 90 ? 'POG' : 'OWE'; });
     /* déchets des navires reçus (MARPOL) — navires fictifs de démonstration */
     var mp = function (n, off, navire, site, annexe, nature, m3, prest, st) { return { id: 'MRP-' + Y + '-' + String(n).padStart(3, '0'), date: D(off), navire: navire, site: site, annexe: annexe, nature: nature, volume: m3, prestataire: prest, statut: st }; };
     var marpol = [
@@ -456,10 +514,15 @@
     ];
 
     /* ------------------------------------------------ sûreté portuaire (code ISPS) */
-    var surete = [{ id: 'ISPS', niveau: 1, depuis: dayAt(-21, 8), par: N(6), motif: 'Niveau normal — aucune menace particulière signalée', historique: [
+    /* un niveau de sûreté par installation portuaire (Owendo et Port-Gentil ont chacune leur PFSO) */
+    var surete = [{ id: 'ISPS', site: 'OWE', niveau: 1, depuis: dayAt(-21, 8), par: N(6), motif: 'Niveau normal — aucune menace particulière signalée', historique: [
       { at: dayAt(-21, 8), niveau: 1, par: N(6), motif: 'Retour au niveau 1 sur instruction de l\'autorité désignée' },
       { at: dayAt(-23, 18), niveau: 2, par: N(6), motif: 'Niveau 2 temporaire : sommet régional à Libreville, renforcement des contrôles' },
-      { at: dayAt(-180, 9), niveau: 1, par: N(6), motif: 'Niveau 1 — situation normale' }] }];
+      { at: dayAt(-180, 9), niveau: 1, par: N(6), motif: 'Niveau 1 — situation normale' }] },
+      { id: 'ISPS-POG', site: 'POG', niveau: 1, depuis: dayAt(-64, 7), par: 'Landry Mouyabi', motif: 'Niveau normal — aucune menace particulière signalée', historique: [
+        { at: dayAt(-64, 7), niveau: 1, par: 'Landry Mouyabi', motif: 'Retour au niveau 1 après l\'alerte de piraterie levée dans le golfe de Guinée' },
+        { at: dayAt(-67, 20), niveau: 2, par: 'Landry Mouyabi', motif: 'Niveau 2 temporaire : alerte de piraterie au large du Cap Lopez (instruction de l\'autorité désignée)' },
+        { at: dayAt(-200, 9), niveau: 1, par: 'Landry Mouyabi', motif: 'Niveau 1 — situation normale' }] }];
     var BZ = ['Zone d\'accès restreint (quais)', 'Parc à conteneurs', 'Zone pétrolière (poste 4 / soutage)', 'Bâtiments administratifs'];
     var bdg = function (n, nom, type, org, zones, exp, st) { return { id: 'BDG-' + String(n).padStart(4, '0'), titulaire: nom, type: type, organisme: org, zones: zones, emission: D(exp - 365), expiration: D(exp), statut: st || 'Actif' }; };
     var badges = [
@@ -470,8 +533,13 @@
       bdg(2103, 'Mabika Fernand', 'Entreprise extérieure', 'Engins Services Afrique', [BZ[1]], 95), bdg(2104, 'Nziengui Arsène', 'Entreprise extérieure', 'Mandji Transports', [BZ[0]], 40),
       bdg(3101, 'Kassa Didier', 'Transporteur (camion)', 'Transitaire Ogooué Logistique (démo)', [BZ[1]], 60), bdg(3102, 'Moussavou Yves', 'Transporteur (camion)', 'Transitaire Ogooué Logistique (démo)', [BZ[1]], -12, 'Expiré'),
       bdg(4101, 'Ebang Léa', 'Agent consignataire', 'Équateur Maritime Agency (démo)', [BZ[0], BZ[3]], 120), bdg(4102, 'Tchicaya Marc', 'Agent consignataire', 'Gulf of Guinea Shipping (démo)', [BZ[0], BZ[3]], 8),
-      bdg(5101, 'Ndoutoume Alice', 'Administration (douane)', 'Douanes gabonaises', BZ, 300), bdg(2105, 'Becker Jonas', 'Entreprise extérieure', 'Crane Parts Europe', [BZ[0]], 0, 'Demande en cours')
+      bdg(5101, 'Ndoutoume Alice', 'Administration (douane)', 'Douanes gabonaises', BZ, 300), bdg(2105, 'Becker Jonas', 'Entreprise extérieure', 'Crane Parts Europe', [BZ[0]], 0, 'Demande en cours'),
+      bdg(1027, E.empName(M(36)), 'Permanent GPM', 'GPM', BZ, 240), bdg(1028, E.empName(M(41)), 'Permanent GPM', 'GPM', [BZ[0], BZ[2]], 9),
+      bdg(1029, E.empName(M(38)), 'Permanent GPM', 'GPM', [BZ[0], BZ[2]], 150), bdg(2106, 'Oyono Patrice', 'Entreprise extérieure', 'Offshore Supply Gabon (démo)', [BZ[0]], 70),
+      bdg(3103, 'Mabika Roger', 'Transporteur (camion)', 'Mandji Transports', [BZ[0]], -3, 'Expiré'), bdg(4103, 'Ivanga Sonia', 'Agent consignataire', 'Cap Lopez Shipping (démo)', [BZ[0], BZ[3]], 0, 'Demande en cours')
     ];
+    var BPOG = { 'BDG-1024': 1, 'BDG-2104': 1, 'BDG-1027': 1, 'BDG-1028': 1, 'BDG-1029': 1, 'BDG-2106': 1, 'BDG-3103': 1, 'BDG-4103': 1 };
+    badges.forEach(function (b) { b.site = BPOG[b.id] ? 'POG' : 'OWE'; });
     var vs = function (n, off, h, hs, nom, piece, org, motif, hote, site, veh, st) { return { id: 'VIS-' + String(n).padStart(4, '0'), date: D(off), entree: h, sortie: hs || '', nom: nom, piece: piece, organisme: org, motif: motif, hote: hote, site: site, vehicule: veh || '', statut: st || (hs ? 'Sorti' : 'Sur site') }; };
     var visiteurs = [
       vs(8812, 0, '07:42', '', 'Ndong Mathias', 'CNI 1203***', 'Transitaire Ogooué Logistique (démo)', 'Enlèvement de conteneurs', M(20), 'OWE', 'GR-512-AD (camion)'),
@@ -483,9 +551,12 @@
       vs(8806, -1, '14:00', '17:40', 'Oyono Patrice', 'CNI 1121***', 'Offshore Supply Gabon (démo)', 'Réunion opérations offshore', M(36), 'POG', ''),
       vs(8805, -1, '10:20', '12:00', 'Ekogha Brice', 'CNI 1044***', 'Hydro Survey Africa', 'Préparation des levés hydrographiques', M(36), 'POG', 'OG-415-AA'),
       vs(8804, -1, '08:00', '16:30', 'Mbadinga Serge', 'Badge BDG-2102', 'Gabon Électro-Tech', 'Travaux électriques au parc', M(23), 'OWE', 'GN-990-AB (fourgon)'),
-      vs(8803, -2, '09:00', '11:30', 'Délégation (5 personnes)', 'Liste nominative visée', 'Ministère des Transports', 'Visite officielle des installations', M(31), 'OWE', 'Minibus officiel')
+      vs(8803, -2, '09:00', '11:30', 'Délégation (5 personnes)', 'Liste nominative visée', 'Ministère des Transports', 'Visite officielle des installations', M(31), 'OWE', 'Minibus officiel'),
+      vs(8813, 0, '07:55', '', 'Nkoulou Jérémie', 'Badge BDG-2106', 'Offshore Supply Gabon (démo)', 'Supervision du chargement des modules offshore', M(41), 'POG', 'OG-207-AB (pick-up)'),
+      vs(8814, 0, '09:40', '', 'Capt. P. Nguema', 'Passeport G11***', 'PSV Offshore Mandji', 'Réunion de sûreté navire / port (PFSO)', M(36), 'POG', ''),
+      vs(8815, 0, '06:50', '08:10', 'Ivanga Sonia', 'CNI 1310***', 'Cap Lopez Shipping (démo)', 'Formalités de soutage du MT West Gentil', M(37), 'POG', '')
     ];
-    var dsec = function (n, off, navire, imo, site, niv, motif, signNav, st) { return { id: 'DOS-' + Y + '-' + String(n).padStart(3, '0'), date: D(off), navire: navire, imo: imo, site: site, niveauNavire: niv, niveauPort: 1, motif: motif, sso: signNav, pfso: N(6), statut: st }; };
+    var dsec = function (n, off, navire, imo, site, niv, motif, signNav, st) { return { id: 'DOS-' + Y + '-' + String(n).padStart(3, '0'), date: D(off), navire: navire, imo: imo, site: site, niveauNavire: niv, niveauPort: 1, motif: motif, sso: signNav, pfso: site === 'POG' ? 'Landry Mouyabi' : N(6), statut: st }; };
     var dos = [
       dsec(47, 1, 'MT Ogooué Star', '9700004', 'OWE', 1, 'Opérations de déchargement de produits pétroliers au poste 4 (interface navire / port à risque)', 'Capt. R. Osei (SSO)', 'À signer'),
       dsec(46, 0, 'MT West Gentil', '9700011', 'POG', 1, 'Soutage et eau douce à l\'appontement de Port-Gentil', 'Capt. L. Martins (SSO)', 'Signée'),
@@ -493,6 +564,7 @@
       dsec(44, -15, 'MV Atlantic Pongara', '9700008', 'OWE', 1, 'Demande du navire (escale précédente dans une zone à risque de piraterie)', 'Capt. D. Ivanov (SSO)', 'Clôturée'),
       dsec(43, -23, 'MV Gulf Trader', '9700007', 'OWE', 2, 'Port au niveau 2 (sommet régional)', 'Capt. J. Silva (SSO)', 'Clôturée')
     ];
+    dos[dos.length - 1].niveauPort = 2;
     var ex = function (n, off, type, theme, site, part, st, score, constat) { return { id: 'EXS-' + Y + '-' + String(n).padStart(3, '0'), date: D(off), type: type, theme: theme, site: site, participants: part, statut: st, score: score, constat: constat || '' }; };
     var exercices = [
       ex(19, -85, 'Exercice', 'Intrusion par la mer sur le parc à conteneurs (détection et alerte)', 'OWE', 18, 'Réalisé', 78, 'Délai d\'alerte de la capitainerie trop long (9 min) — procédure de communication à revoir.'),
@@ -507,6 +579,30 @@
   }
 
   function init() {
+    /* rattachement aux sites (init s'exécute en vue globale, avant le rattachement automatique du noyau) :
+       la zone portuaire fait foi pour les permis, événements, audits et plans ; les actions suivent leur origine. */
+    var okSite = function (s) { return s === 'OWE' || s === 'POG'; };
+    ['permis', 'incidents', 'audits'].forEach(function (col) { S.raw(col).forEach(function (r) { if (/^(OWE|POG)-/.test(r.unite || '')) r.site = siteOf(r.unite); }); });
+    S.raw('plansPrevention').forEach(function (p) { if (p.zones && /^(OWE|POG)-/.test(p.zones[0] || '')) p.site = siteOf(p.zones[0]); });
+    S.raw('actionsHSE').forEach(function (a) { var src = S.raw('incidents').concat(S.raw('audits')).find(function (r) { return r.id === a.source; }); if (src && okSite(src.site)) a.site = src.site; else if (!okSite(a.site)) a.site = 'OWE'; });
+    /* statistiques mensuelles et qualité des eaux : un enregistrement par site et par mois */
+    var perSite = function (col, ratio) {
+      var rows = S.raw(col); if (!rows.length) return;
+      var by = E.groupBy(rows, 'id');
+      Object.keys(by).forEach(function (id) {
+        var l = by[id], owe = l.find(function (r) { return r.site === 'OWE'; }), pog = l.find(function (r) { return r.site === 'POG'; });
+        if (owe && pog) return;
+        var base = owe || l[0]; base.site = 'OWE';
+        if (!pog || pog === base) { var c = E.clone(base); c.site = 'POG'; Object.keys(ratio).forEach(function (k) { if (typeof c[k] === 'number') c[k] = ratio[k](c[k]); }); rows.push(c); }
+      });
+    };
+    perSite('hseMois', { heures: function (v) { return Math.round(v * 0.28 / 100) * 100; }, heuresEE: function (v) { return Math.round(v * 0.28 / 100) * 100; }, observations: function (v) { return Math.max(3, Math.round(v * 0.28)); }, qhs: function (v) { return Math.max(4, Math.round(v * 0.28)); }, permis: function (v) { return Math.round(v * 0.28); } });
+    perSite('envEaux', { navires: function (v) { return Math.round(v * 0.3); }, hc: function (v) { return Math.round(v * 0.8 * 10) / 10; } });
+    /* niveau de sûreté ISPS : un enregistrement par installation portuaire */
+    var sur = S.raw('surete'), o = sur.find(function (x) { return x.id === 'ISPS'; });
+    if (o) o.site = 'OWE';
+    sur.forEach(function (x) { if (x !== o && x.id === 'ISPS') x.id = 'ISPS-' + (okSite(x.site) ? x.site : 'POG'); if (!okSite(x.site)) x.site = /POG/.test(x.id) ? 'POG' : 'OWE'; });
+    ['OWE', 'POG'].forEach(function (s) { if (!sur.some(function (x) { return x.site === s; })) sur.push(newIsps(s)); });
     /* expiration automatique des plans de prévention */
     S.all('plansPrevention').forEach(function (p) {
       if ((p.statut === 'Actif' || p.statut === 'Signé') && p.fin < E.today()) {
@@ -535,11 +631,19 @@
   function pdpExpiring() { return S.all('plansPrevention').filter(function (p) { return p.statut === 'Actif' && pdpDaysLeft(p) <= 15; }); }
 
   /* ================================================================== rendu principal */
-  var state = { permis: { q: '', type: '', st: 'actifs', unite: '' }, zone: '', ev: { q: '', type: '' }, act: { st: 'ouvertes', resp: '' }, pdp: { st: '' }, aud: { type: '' }, sur: { vue: 'badges', q: '' } };
+  var state = { permis: { q: '', type: '', st: 'actifs', unite: '' }, zone: '', mapSite: 'OWE', ev: { q: '', type: '' }, act: { st: 'ouvertes', resp: '' }, pdp: { st: '' }, aud: { type: '' }, sur: { vue: 'badges', q: '' } };
 
   function render(view, params) {
-    var tab = params[0] || 'apercu', id = params[1];
+    var tab = params[0] || 'apercu', id = params[1], sc = SC();
     var niv = isps().niveau;
+    /* filtres mémorisés : on oublie une zone qui n'appartient pas à l'espace actif */
+    var zids = zonesOf(sc).map(function (z) { return z.id; });
+    if (sc) state.mapSite = sc; else if (state.mapSite !== 'POG') state.mapSite = 'OWE';
+    if (state.zone && (zids.indexOf(state.zone) < 0 || siteOf(state.zone) !== state.mapSite)) state.zone = '';
+    if (state.permis.unite && zids.indexOf(state.permis.unite) < 0) state.permis.unite = '';
+    /* en vue globale : les deux niveaux (Owendo / Port-Gentil) */
+    var ispsHtml = sc ? '<a class="hse-isps n' + niv + '" href="#/hse/surete" title="Niveau de sûreté ISPS en vigueur — ' + esc(portLong(sc)) + '"><span>Niveau de sûreté ISPS</span><b>' + niv + '</b><em>' + esc(NIV[niv].l) + '</em></a>' :
+      '<a class="hse-isps hse-isps--dual" href="#/hse/surete" title="Niveaux de sûreté ISPS en vigueur dans chaque port"><span>Niveaux de sûreté ISPS</span>' + ['OWE', 'POG'].map(function (s) { var n = isps(s).niveau; return '<i class="n' + n + '"><b>' + n + '</b><em>' + portName(s) + '<small>' + esc(NIV[n].l) + '</small></em></i>'; }).join('') + '</a>';
     var tabsList = [
       { k: 'apercu', l: 'Vue d\'ensemble' },
       { k: 'surete', l: 'Sûreté ISPS', n: S.all('visiteurs').filter(function (v) { return v.statut === 'Sur site'; }).length || null },
@@ -553,8 +657,8 @@
     ];
     if (!tabsList.some(function (t) { return t.k === tab; })) tab = 'apercu';
     view.innerHTML = '<div class="hse">' +
-      '<div class="section-title hse-top"><div><h2>HSE & sûreté · Ports d\'Owendo et de Port-Gentil</h2><p>' + fmt.date(E.today()) + ' · ' + actifs().length + ' permis actifs · ' + joursSans() + ' jours sans accident avec arrêt</p></div><div class="spacer"></div>' +
-      '<a class="hse-isps n' + niv + '" href="#/hse/surete" title="Niveau de sûreté ISPS en vigueur — cliquez pour le modifier"><span>Niveau de sûreté ISPS</span><b>' + niv + '</b><em>' + esc(NIV[niv].l) + '</em></a>' +
+      '<div class="section-title hse-top"><div><h2>HSE & sûreté · ' + esc(portLong(sc)) + '</h2><p>' + fmt.date(E.today()) + ' · ' + actifs().length + ' permis actifs · ' + joursSans() + ' jours sans accident avec arrêt</p></div><div class="spacer"></div>' +
+      ispsHtml +
       '<div class="row hse-top__btns"><button class="btn danger" data-act="declare">' + icon('alert') + 'Déclarer un événement</button><button class="btn primary" data-act="new-permit">' + icon('plus') + 'Nouveau permis</button></div></div>' +
       ui.tabs(tabsList, tab, function (k) { E.go('hse/' + k); }) +
       '<div id="hse-body"></div>' +
@@ -569,11 +673,14 @@
   }
 
   /* ------------------------------------------------------------------ compteur « jours sans accident » */
+  /* record de jours sans accident avec arrêt : propre au port (espace de site), ou des ports (vue globale) */
+  function recordJ() { var j = joursSans(); return Math.max(SC() === 'POG' ? 640 : 412, j); }
+  function recordLbl() { return SC() ? 'Record du port' : 'Record des ports'; }
   function counterCard() {
-    var j = joursSans(), l = lastAAA(), record = Math.max(412, j);
+    var j = joursSans(), l = lastAAA(), record = recordJ();
     return '<div class="card hse-counter"><div class="hse-counter__n">' + j + '</div><div class="hse-counter__t"><b>jours sans accident avec arrêt</b>' +
       (l ? '<span>Dernier : ' + fmt.date(l.date) + ' · ' + esc(l.titre) + '</span>' : '') +
-      '<div class="hse-counter__bar"><i style="width:' + Math.min(100, j / record * 100) + '%"></i></div><span>Record des ports : ' + record + ' jours · objectif ' + (record + 1) + '</span></div>' + icon('shield', 'hse-counter__ic') + '</div>';
+      '<div class="hse-counter__bar"><i style="width:' + Math.min(100, j / record * 100) + '%"></i></div><span>' + recordLbl() + ' : ' + record + ' jours · objectif ' + (record + 1) + '</span></div>' + icon('shield', 'hse-counter__ic') + '</div>';
   }
 
   /* ------------------------------------------------------------------ plan schématique du port d'Owendo (SVG) */
@@ -584,28 +691,50 @@
     'OWE-P3': { x: 550, y: 240, w: 140, h: 100, s: 'Poste 3 · roulier' }, 'OWE-P4': { x: 550, y: 350, w: 140, h: 100, s: 'Poste 4 · pétrolier' },
     'OWE-RADE': { x: 708, y: 20, w: 84, h: 330, s: 'Rade' }
   };
-  function zoneMap(list, sel) {
-    var by = E.groupBy(list, 'unite');
-    var deco = '<g class="dz">' +
-      [0, 1, 2, 3, 4].map(function (r) { return [0, 1, 2, 3, 4, 5].map(function (c) { return '<rect x="' + (255 + c * 44) + '" y="' + (45 + r * 44) + '" width="34" height="16" rx="2"/>'; }).join(''); }).join('') +
-      '<rect x="45" y="55" width="60" height="30" rx="4"/><rect x="120" y="95" width="70" height="30" rx="4"/><rect x="45" y="205" width="150" height="50" rx="4"/>' +
-      [70, 180, 290].map(function (y) { return '<path d="M600 ' + (y - 40) + ' v50 M600 ' + (y - 40) + ' l50 14"/>'; }).join('') +
-      '</g>';
-    var sea = '<path d="M700 0 H800 V470 H700 Z" class="sea"/>' +
+  /* plan schématique du port de Port-Gentil : baie du Cap Lopez à l'ouest, quais A et B, appontement de soutage, agence */
+  var ZONES_POG = {
+    'POG-RADE': { x: 20, y: 20, w: 160, h: 270, s: 'Rade du Cap Lopez' },
+    'POG-QC': { x: 322, y: 20, w: 220, h: 140, s: 'Quai A · commercial' }, 'POG-QB': { x: 322, y: 175, w: 220, h: 140, s: 'Quai B · offshore' },
+    'POG-SOUT': { x: 110, y: 330, w: 250, h: 120, s: 'Appontement de soutage' },
+    'POG-MAG': { x: 560, y: 20, w: 220, h: 295, s: 'Magasin & agence' }
+  };
+  function mapBackdrop(site) {
+    if (site === 'POG') {
+      return { label: 'Plan schématique du port de Port-Gentil', bg: '<path d="M0 0 H310 V330 H380 V470 H0 Z" class="sea"/>' +
+        '<rect x="302" y="15" width="8" height="305" class="jetty"/><rect x="150" y="384" width="230" height="12" class="jetty"/><rect x="150" y="372" width="10" height="36" class="jetty"/>' +
+        '<path d="M310 167 H790 M551 0 V470 M310 324 H790" class="road"/>' +
+        '<g class="dz">' + [0, 1, 2].map(function (r) { return [0, 1, 2, 3].map(function (c) { return '<rect x="' + (345 + c * 44) + '" y="' + (45 + r * 26) + '" width="34" height="14" rx="2"/>'; }).join(''); }).join('') +
+        [0, 1].map(function (r) { return [0, 1, 2].map(function (c) { return '<rect x="' + (350 + c * 56) + '" y="' + (200 + r * 34) + '" width="44" height="20" rx="3"/>'; }).join(''); }).join('') +
+        '<rect x="585" y="45" width="120" height="60" rx="4"/><rect x="585" y="125" width="80" height="40" rx="4"/><rect x="680" y="125" width="70" height="40" rx="4"/><rect x="585" y="190" width="165" height="45" rx="4"/>' +
+        [430, 490, 550].map(function (x) { return '<circle cx="' + x + '" cy="398" r="24"/>'; }).join('') + '</g>' +
+        '<path d="M250 40 h40 v85 l-20 22 l-20 -22z" class="ship"/><path d="M250 195 h40 v80 l-20 20 l-20 -20z" class="ship"/><path d="M212 404 h122 l-12 26 h-98z" class="ship"/>' +
+        '<text x="95" y="310" class="seal" text-anchor="middle">Baie du</text><text x="95" y="323" class="seal" text-anchor="middle">Cap Lopez</text>',
+        north: 'translate(760 430)' };
+    }
+    return { label: 'Plan schématique du port d\'Owendo', bg: '<path d="M700 0 H800 V470 H700 Z" class="sea"/>' +
       '<rect x="692" y="15" width="8" height="440" class="jetty"/>' +
       '<path d="M712 60 h60 l-8 70 h-44z" class="ship"/><path d="M712 280 h56 l-8 50 h-40z" class="ship"/><path d="M712 380 h50 l-6 46 h-38z" class="ship"/>' +
-      '<text x="750" y="455" class="seal" text-anchor="middle">Estuaire</text><text x="750" y="467" class="seal" text-anchor="middle">du Komo</text>';
-    var zones = Object.keys(ZONES).map(function (u) {
-      var z = ZONES[u], ps = by[u] || [], n = ps.length, feu = ps.some(function (p) { return p.type === 'FEU'; }), susp = ps.some(function (p) { return p.statut === 'Suspendu'; });
+      '<text x="750" y="455" class="seal" text-anchor="middle">Estuaire</text><text x="750" y="467" class="seal" text-anchor="middle">du Komo</text>' +
+      '<path d="M0 167 H540 M227 0 V470 M542 0 V470 M0 330 H540" class="road"/>' +
+      '<g class="dz">' + [0, 1, 2, 3, 4].map(function (r) { return [0, 1, 2, 3, 4, 5].map(function (c) { return '<rect x="' + (255 + c * 44) + '" y="' + (45 + r * 44) + '" width="34" height="16" rx="2"/>'; }).join(''); }).join('') +
+      '<rect x="45" y="55" width="60" height="30" rx="4"/><rect x="120" y="95" width="70" height="30" rx="4"/><rect x="45" y="205" width="150" height="50" rx="4"/>' +
+      [70, 180, 290].map(function (y) { return '<path d="M600 ' + (y - 40) + ' v50 M600 ' + (y - 40) + ' l50 14"/>'; }).join('') + '</g>',
+      north: 'translate(40 420)' };
+  }
+  function zoneMap(list, sel, site) {
+    site = site === 'POG' ? 'POG' : 'OWE';
+    var by = E.groupBy(list, 'unite'), ZS = site === 'POG' ? ZONES_POG : ZONES, bd = mapBackdrop(site);
+    var zones = Object.keys(ZS).map(function (u) {
+      var z = ZS[u], ps = by[u] || [], n = ps.length, feu = ps.some(function (p) { return p.type === 'FEU'; }), susp = ps.some(function (p) { return p.statut === 'Suspendu'; });
       var cls = 'zone' + (n ? ' has' : '') + (feu ? ' feu' : '') + (sel === u ? ' sel' : '');
       var cx = z.x + z.w - 22, cy = z.y + 22;
       return '<g class="' + cls + '" data-u="' + u + '"><title>' + esc(uName(u) + ' — ' + n + ' permis actif(s)' + (n ? ' : ' + ps.map(function (p) { return p.id + ' (' + TYPES[p.type].s + ')'; }).join(', ') : '')) + '</title>' +
         '<rect x="' + z.x + '" y="' + z.y + '" width="' + z.w + '" height="' + z.h + '" rx="12" class="zr"/>' +
-        '<text x="' + (z.x + 10) + '" y="' + (z.y + z.h - 26) + '" class="zid">' + u.replace('OWE-', '') + '</text><text x="' + (z.x + 10) + '" y="' + (z.y + z.h - 10) + '" class="zn">' + esc(z.s) + '</text>' +
+        '<text x="' + (z.x + 10) + '" y="' + (z.y + z.h - 26) + '" class="zid">' + u.replace(/^(OWE|POG)-/, '') + '</text><text x="' + (z.x + 10) + '" y="' + (z.y + z.h - 10) + '" class="zn">' + esc(z.s) + '</text>' +
         (n ? (feu ? '<circle cx="' + cx + '" cy="' + cy + '" r="16" class="pulse"/>' : '') + '<circle cx="' + cx + '" cy="' + cy + '" r="16" class="pin' + (feu ? ' red' : susp ? ' orange' : '') + '"/><text x="' + cx + '" y="' + (cy + 6) + '" class="pinn" text-anchor="middle">' + n + '</text>' : '') + '</g>';
     }).join('');
-    return '<svg class="hse-map" viewBox="0 0 800 470" role="img" aria-label="Plan schématique du port d\'Owendo">' + '<rect x="0" y="0" width="800" height="470" class="land"/>' + sea + '<path d="M0 167 H540 M227 0 V470 M542 0 V470 M0 330 H540" class="road"/>' + deco + zones +
-      '<g transform="translate(40 420)" class="north"><path d="M0 -22 L8 4 L0 -2 L-8 4Z"/><text y="18" text-anchor="middle">N</text></g></svg>';
+    return '<svg class="hse-map hse-map--' + site.toLowerCase() + '" viewBox="0 0 800 470" role="img" aria-label="' + esc(bd.label) + '">' + '<rect x="0" y="0" width="800" height="470" class="land"/>' + bd.bg + zones +
+      '<g transform="' + bd.north + '" class="north"><path d="M0 -22 L8 4 L0 -2 L-8 4Z"/><text y="18" text-anchor="middle">N</text></g></svg>';
   }
 
   function permitItem(p) {
@@ -629,11 +758,14 @@
       ui.kpi({ label: 'Actions correctives en retard', value: late.length, icon: 'alert', tone: late.length ? 'red' : 'green', foot: S.all('actionsHSE').filter(function (a) { return a.statut !== 'Réalisée'; }).length + ' actions ouvertes' }) +
       ui.kpi({ label: 'TF1 glissant 12 mois', value: num(r.tf1, 2), icon: 'trend', tone: 'violet', foot: 'TF2 ' + num(r.tf2, 2) + ' · TG ' + num(r.tg, 3) }) +
       '</div></div>';
-    html += '<div class="grid g-2-1" style="margin-top:16px"><div class="card"><div class="card__h"><h3>Permis actifs dans les ports</h3><span class="sub">autorisés, en cours ou suspendus · cliquez une zone pour filtrer</span><div class="spacer"></div><div class="legend"><span><i style="background:var(--navy-3)"></i>Actifs</span><span><i style="background:var(--red)"></i>Dont permis de feu</span><span><i style="background:var(--orange)"></i>Suspendu</span></div></div>' +
-      '<div class="card__b"><div class="hse-mapwrap">' + zoneMap(act, state.zone) + '</div><div class="chips hse-zchips">' +
-      ZP.map(function (z) { return z.id; }).map(function (u) { var n = act.filter(function (p) { return p.unite === u; }).length; return '<button class="chip' + (state.zone === u ? ' is-active' : '') + '" data-z="' + u + '">' + esc(uName(u).replace('Owendo · ', '')) + (n ? ' <b>' + n + '</b>' : '') + '</button>'; }).join('') + '</div></div></div>' +
-      '<div class="card"><div class="card__h"><h3>' + (state.zone ? 'Zone ' + state.zone + ' · ' + esc(uName(state.zone)) : 'Tous les permis actifs') + '</h3>' + (state.zone ? '<button class="btn ghost sm" data-z="">Toutes les zones</button>' : '') + '</div><div class="hse-pl">' +
-      (function () { var l = act.filter(function (p) { return !state.zone || p.unite === state.zone; }); return l.length ? l.map(permitItem).join('') : '<div class="empty">Aucun permis actif dans cette zone.</div>'; })() + '</div></div></div>';
+    /* plan : celui du site actif ; en vue globale, sélecteur Owendo / Port-Gentil */
+    var sc = SC(), ms = state.mapSite, actM = act.filter(function (p) { return siteOf(p.unite) === ms; });
+    var mapSel = sc ? '' : '<div class="chips hse-mapsel" role="tablist">' + ['OWE', 'POG'].map(function (s) { var n = act.filter(function (p) { return siteOf(p.unite) === s; }).length; return '<button class="chip' + (ms === s ? ' is-active' : '') + '" data-ms="' + s + '" role="tab" aria-selected="' + (ms === s) + '">' + icon('pin') + 'Port ' + (s === 'POG' ? 'de Port-Gentil' : 'd\'Owendo') + ' <b>' + n + '</b></button>'; }).join('') + '</div>';
+    html += '<div class="grid g-2-1" style="margin-top:16px"><div class="card"><div class="card__h"><h3>Permis actifs ' + (sc ? 'sur le port' : 'dans les ports') + '</h3><span class="sub">autorisés, en cours ou suspendus · cliquez une zone pour filtrer</span><div class="spacer"></div><div class="legend"><span><i style="background:var(--navy-3)"></i>Actifs</span><span><i style="background:var(--red)"></i>Dont permis de feu</span><span><i style="background:var(--orange)"></i>Suspendu</span></div></div>' +
+      '<div class="card__b">' + mapSel + '<div class="hse-mapwrap">' + zoneMap(actM, state.zone, ms) + '</div><div class="chips hse-zchips">' +
+      zonesOf(ms).map(function (z) { return z.id; }).map(function (u) { var n = actM.filter(function (p) { return p.unite === u; }).length; return '<button class="chip' + (state.zone === u ? ' is-active' : '') + '" data-z="' + u + '">' + esc(shortZ(u)) + (n ? ' <b>' + n + '</b>' : '') + '</button>'; }).join('') + '</div></div></div>' +
+      '<div class="card"><div class="card__h"><h3>' + (state.zone ? 'Zone ' + state.zone + ' · ' + esc(shortZ(state.zone)) : 'Tous les permis actifs' + (sc ? '' : ' · ' + portName(ms))) + '</h3>' + (state.zone ? '<button class="btn ghost sm" data-z="">Toutes les zones</button>' : '') + '</div><div class="hse-pl">' +
+      (function () { var l = actM.filter(function (p) { return !state.zone || p.unite === state.zone; }); return l.length ? l.map(permitItem).join('') : '<div class="empty">Aucun permis actif ' + (state.zone ? 'dans cette zone' : 'sur ce port') + '.</div>'; })() + '</div></div></div>';
     /* alertes + événements récents */
     var alerts = [];
     act.filter(isOverdue).forEach(function (p) { alerts.push(['red', 'clock', '<b>' + p.id + '</b> — validité dépassée (' + fH(p.fin) + ') : à prolonger ou clôturer.', '#/hse/permis/' + p.id]); });
@@ -650,6 +782,7 @@
       recent.map(function (i) { var t = EVT[i.type]; return '<a class="list__item" href="#/hse/evenements/' + i.id + '" style="color:inherit"><div class="list__icon" style="background:' + t.c + '1a;color:' + t.c + '">' + icon(t.ic) + '</div><div class="list__body"><b>' + esc(i.titre) + '</b><div class="small muted">' + fmt.date(i.date) + ' · ' + esc(i.unite + ' · ' + i.lieu) + '</div><div class="row" style="gap:6px;margin-top:4px">' + evBadge(i.type) + ui.badge(i.statut, EV_TONE[i.statut]) + '</div></div></a>'; }).join('') + '</div></div></div>';
     el.innerHTML = html;
     $$('[data-z]', el).forEach(function (b) { b.onclick = function () { state.zone = state.zone === b.dataset.z ? '' : b.dataset.z; tabApercu(el); }; });
+    $$('[data-ms]', el).forEach(function (b) { b.onclick = function () { if (state.mapSite !== b.dataset.ms) { state.mapSite = b.dataset.ms; state.zone = ''; tabApercu(el); } }; });
     $$('.hse-map .zone', el).forEach(function (g) { g.addEventListener('click', function () { state.zone = state.zone === g.dataset.u ? '' : g.dataset.u; tabApercu(el); }); });
   }
 
@@ -949,15 +1082,15 @@
     var start = new Date(); start.setDate(start.getDate() + 1); start.setHours(7, 0, 0, 0);
     var fields = [
       { name: 'type', label: 'Type de permis', type: 'select', options: TYPE_KEYS.map(function (k) { return { v: k, l: TYPES[k].l }; }), required: true, full: true, value: pre.type || 'GEN' },
-      { name: 'unite', label: 'Zone portuaire', type: 'select', options: uniteOpts(), required: true, value: pre.unite || 'OWE-P1' },
+      { name: 'unite', label: 'Zone portuaire', type: 'select', options: uniteOpts(), required: true, value: pre.unite || def('zone') },
       { name: 'equipement', label: 'Équipement / lieu précis', required: true, placeholder: 'ex. Pompe P-104B, bride aspiration' },
       { name: 'description', label: 'Description des travaux', type: 'textarea', required: true },
       { name: 'ot', label: 'Ordre de travail lié', placeholder: 'OT-' + yr() + '-0xxx', value: 'OT-' + yr() + '-0' + (885 + Math.floor(Math.random() * 40)) },
       { name: 'entreprise', label: 'Entreprise intervenante', type: 'select', options: entOpts(), value: 'INT' },
       { name: 'intervenants', label: 'Nombre d\'intervenants', type: 'number', value: 2, min: 1 },
-      { name: 'demandeur', label: 'Demandeur', type: 'select', options: empOpts(), value: M(25), required: true },
-      { name: 'emetteur', label: 'Émetteur pressenti', type: 'select', options: empOpts(), value: M(36) },
-      { name: 'responsable', label: 'Responsable de zone', type: 'select', options: empOpts(), value: M(14) },
+      { name: 'demandeur', label: 'Demandeur', type: 'select', options: empOpts(), value: def('dem'), required: true },
+      { name: 'emetteur', label: 'Émetteur pressenti', type: 'select', options: empOpts(), value: def('emi') },
+      { name: 'responsable', label: 'Responsable de zone', type: 'select', options: empOpts(), value: def('resp') },
       { name: 'debut', label: 'Début de validité', type: 'datetime-local', value: localISO(start), required: true },
       { name: 'duree', label: 'Durée (heures, max 12)', type: 'number', value: 10, min: 1, required: true }
     ];
@@ -967,7 +1100,7 @@
     ui.modal({ title: 'Nouvelle demande de permis de travail', sub: 'La demande sera ensuite préparée (analyse de risques, mesures) puis autorisée', size: 'lg', body: body, actions: [{ label: 'Annuler' }, { label: 'Créer la demande', cls: 'primary', icon: 'check', onClick: function (close, root) {
       var v = ui.readForm(root); if (!v) return;
       if (!(v.duree > 0 && v.duree <= 12)) { ui.toast('La durée de validité d\'un permis est limitée à 12 heures.', 'err'); $('#f_duree', root).style.borderColor = 'var(--red)'; return; }
-      var p = { id: nextId('permis', 'PT-' + yr() + '-', 4), type: v.type, statut: 'Demandé', unite: v.unite, equipement: v.equipement, description: v.description, ot: v.ot, entreprise: v.entreprise, intervenants: v.intervenants || 1,
+      var p = { id: nextId('permis', 'PT-' + yr() + '-', 4), site: SC() || siteOf(v.unite), type: v.type, statut: 'Demandé', unite: v.unite, equipement: v.equipement, description: v.description, ot: v.ot, entreprise: v.entreprise, intervenants: v.intervenants || 1,
         demandeur: v.demandeur, emetteur: v.emetteur, responsable: v.responsable, debut: v.debut, fin: shift(v.debut, v.duree), gaz: [], associes: readGroup(root, 'as'), prolong: [], secu: {}, dangers: [], epi: [], surveillant: '', cree: nowISO(),
         sig: { demandeur: { nom: E.empName(v.demandeur), at: nowISO() } }, hist: [] };
       addHist(p, 'Demandé', 'Demande créée par ' + user().name);
@@ -982,13 +1115,15 @@
   function printDoc(title, html) {
     ui.modal({ title: title, size: 'lg', body: html, actions: [{ label: 'Fermer' }, { label: 'Imprimer', cls: 'primary', icon: 'print', onClick: function () { document.body.classList.add('hse-printing'); window.print(); setTimeout(function () { document.body.classList.remove('hse-printing'); }, 500); } }] });
   }
-  function docHead(title, sub, ref, st) {
-    return '<div class="doc__head"><div class="row" style="align-items:center"><img src="../assets/img/logo.png" alt="GPM"><div><b style="font-size:15px">Gabon Port Management</b><div class="small muted">Ports d\'Owendo et de Port-Gentil · Service HSE</div></div></div>' +
+  /* en-tête des documents imprimables : le port du document (ou de l'espace actif) */
+  function docHead(title, sub, ref, st, site) {
+    site = site || SC();
+    return '<div class="doc__head"><div class="row" style="align-items:center"><img src="../assets/img/logo.png" alt="GPM"><div><b style="font-size:15px">Gabon Port Management</b><div class="small muted">' + esc(portLong(site)) + ' · Service HSE' + (site === 'POG' ? ' de l\'agence' : '') + '</div></div></div>' +
       '<div class="right"><h4>' + esc(title) + '</h4><div class="small">' + esc(sub) + '</div><div class="mono" style="margin-top:4px">' + esc(ref) + '</div>' + (st ? '<div style="margin-top:4px">' + st + '</div>' : '') + '</div></div>';
   }
   function printPermit(p) {
     var t = TYPES[p.type], box = function (on) { return '<span class="hse-box">' + (on ? '✕' : '') + '</span>'; };
-    var html = '<div class="doc hse-doc" style="--c:' + t.c + '">' + docHead(t.l.toUpperCase(), 'Permis de travail — à afficher sur le lieu de travail', p.id, stBadge(p.statut)) +
+    var html = '<div class="doc hse-doc" style="--c:' + t.c + '">' + docHead(t.l.toUpperCase(), 'Permis de travail — à afficher sur le lieu de travail', p.id, stBadge(p.statut), p.site || siteOf(p.unite)) +
       '<div class="hse-dsec"><h5>1. Identification des travaux</h5><table class="hse-dt"><tr><th>Zone portuaire</th><td>' + esc(p.unite + ' · ' + uName(p.unite)) + '</td><th>Ordre de travail</th><td>' + esc(p.ot) + '</td></tr>' +
       '<tr><th>Équipement</th><td colspan="3">' + esc(p.equipement) + '</td></tr><tr><th>Description</th><td colspan="3">' + esc(p.description) + '</td></tr>' +
       '<tr><th>Entreprise</th><td>' + esc(ent(p.entreprise)) + ' (' + (p.intervenants || 1) + ' pers.)</td><th>Demandeur</th><td>' + esc(E.empName(p.demandeur)) + '</td></tr>' +
@@ -1040,13 +1175,13 @@
       { name: 'respEE', label: 'Responsable de l\'entreprise', required: true, placeholder: 'Nom, fonction' },
       { name: 'travaux', label: 'Nature des travaux', type: 'textarea', required: true },
       { name: 'chantier', label: 'Chantier / projet', value: 'Programme de modernisation' },
-      { name: 'zone', label: 'Zone principale', type: 'select', options: uniteOpts() },
+      { name: 'zone', label: 'Zone principale', type: 'select', options: uniteOpts(), value: def('zone') },
       { name: 'debut', label: 'Début', type: 'date', value: D(7), required: true }, { name: 'fin', label: 'Fin', type: 'date', value: D(60), required: true },
       { name: 'effectif', label: 'Effectif prévu', type: 'number', value: 6, min: 1, required: true },
-      { name: 'respSOG', label: 'Donneur d\'ordre GPM', type: 'select', options: empOpts(), value: M(25) }],
+      { name: 'respSOG', label: 'Donneur d\'ordre GPM', type: 'select', options: empOpts(), value: def('sog') }],
       onSubmit: function (v) {
         if (v.fin <= v.debut) { ui.toast('La date de fin doit être postérieure au début.', 'err'); return false; }
-        var p = { id: nextId('plansPrevention', 'PDP-' + yr() + '-', 3), entreprise: v.entreprise, travaux: v.travaux, chantier: v.chantier, zones: [v.zone], debut: v.debut, fin: v.fin, effectif: v.effectif, respEE: v.respEE, respSOG: v.respSOG, statut: 'Brouillon',
+        var p = { id: nextId('plansPrevention', 'PDP-' + yr() + '-', 3), site: SC() || siteOf(v.zone), entreprise: v.entreprise, travaux: v.travaux, chantier: v.chantier, zones: [v.zone], debut: v.debut, fin: v.fin, effectif: v.effectif, respEE: v.respEE, respSOG: v.respSOG, statut: 'Brouillon',
           inspection: { date: '', participants: [], obs: '' }, interferences: [], habilitations: [{ l: 'Aptitude médicale à jour', ok: false }, { l: 'Formations / habilitations requises pour les travaux', ok: false }, { l: 'Sensibilisation H₂S / port de l\'ARI', ok: false }], accueil: { date: '', personnes: 0 }, sig: {}, hist: [stamp('Brouillon créé')] };
         S.add('plansPrevention', p); E.log('Plan de prévention ' + p.id + ' créé', ent(p.entreprise)); ui.toast('Plan ' + p.id + ' créé'); E.go('hse/prevention/' + p.id);
       } });
@@ -1110,8 +1245,8 @@
     $$('[data-do]', el).forEach(function (b) { b.onclick = function () { A[b.dataset.do](); }; });
   }
   function printPDP(p) {
-    var html = '<div class="doc hse-doc">' + docHead('PLAN DE PRÉVENTION', 'Intervention d\'une entreprise extérieure', p.id, ui.badge(p.statut, PDP_TONE[p.statut])) +
-      '<div class="hse-dsec"><h5>1. Parties et travaux</h5><table class="hse-dt"><tr><th>Entreprise utilisatrice</th><td>Gabon Port Management — ports d\'Owendo et de Port-Gentil</td><th>Donneur d\'ordre</th><td>' + esc(E.empName(p.respSOG)) + '</td></tr><tr><th>Entreprise extérieure</th><td>' + esc(ent(p.entreprise)) + '</td><th>Responsable</th><td>' + esc(p.respEE) + '</td></tr>' +
+    var html = '<div class="doc hse-doc">' + docHead('PLAN DE PRÉVENTION', 'Intervention d\'une entreprise extérieure', p.id, ui.badge(p.statut, PDP_TONE[p.statut]), p.site || siteOf(p.zones[0])) +
+      '<div class="hse-dsec"><h5>1. Parties et travaux</h5><table class="hse-dt"><tr><th>Entreprise utilisatrice</th><td>Gabon Port Management — ' + ((p.site || siteOf(p.zones[0])) === 'POG' ? 'port de Port-Gentil' : 'port d\'Owendo') + '</td><th>Donneur d\'ordre</th><td>' + esc(E.empName(p.respSOG)) + '</td></tr><tr><th>Entreprise extérieure</th><td>' + esc(ent(p.entreprise)) + '</td><th>Responsable</th><td>' + esc(p.respEE) + '</td></tr>' +
       '<tr><th>Travaux</th><td colspan="3">' + esc(p.travaux) + '</td></tr><tr><th>Zones</th><td>' + esc(p.zones.join(', ')) + '</td><th>Période</th><td>' + fmt.date(p.debut) + ' → ' + fmt.date(p.fin) + '</td></tr><tr><th>Effectif</th><td>' + p.effectif + ' personnes</td><th>Accueil sécurité</th><td>' + (p.accueil.personnes || 0) + ' / ' + p.effectif + '</td></tr></table></div>' +
       '<div class="hse-dsec"><h5>2. Inspection commune préalable</h5><p>' + (p.inspection.date ? 'Réalisée le ' + fmt.date(p.inspection.date) + ' — ' + p.inspection.participants.map(esc).join(' ; ') + '<br>' + esc(p.inspection.obs || '') : 'Non réalisée.') + '</p></div>' +
       '<div class="hse-dsec"><h5>3. Risques d\'interférence et mesures de prévention</h5><table class="hse-dt"><tr><th>Risque</th><th>Mesure</th><th>Charge</th></tr>' + p.interferences.map(function (r) { return '<tr><td>' + esc(r.risque) + '</td><td>' + esc(r.mesure) + '</td><td>' + (r.charge === 'EE' ? 'EE' : 'GPM') + '</td></tr>'; }).join('') + '</table></div>' +
@@ -1159,7 +1294,7 @@
       if (!type || !lieu || !desc || !dt) { ui.toast('Type, lieu et description sont obligatoires.', 'err'); [$('#ev-lieu', root), $('#ev-desc', root)].forEach(function (i) { if (!i.value.trim()) i.style.borderColor = 'var(--red)'; }); return; }
       var ja = +$('#ev-ja', root).value || 0;
       if (type === 'AAA' && !ja) ja = 1;
-      var y = dt.slice(0, 4), i = { id: nextId('incidents', 'EV-' + y + '-', 3), date: dt.slice(0, 10), heure: dt.slice(11, 16), type: type, gravite: g, unite: $('#ev-u', root).value, lieu: lieu,
+      var y = dt.slice(0, 4), i = { id: nextId('incidents', 'EV-' + y + '-', 3), site: SC() || siteOf($('#ev-u', root).value), date: dt.slice(0, 10), heure: dt.slice(11, 16), type: type, gravite: g, unite: $('#ev-u', root).value, lieu: lieu,
         titre: desc.length > 70 ? desc.slice(0, 67).replace(/\s+\S*$/, '') + '…' : desc, description: desc, mesuresImm: $('#ev-imm', root).value, victime: $('#ev-bl', root).checked ? $('#ev-v', root).value : '', joursArret: type === 'AAA' ? ja : 0,
         declarant: '', declarantNom: user().name, statut: 'Déclaré', causes: null };
       S.add('incidents', i); E.log('Événement HSE déclaré ' + i.id, EVT[type].l + ' · ' + lieu);
@@ -1242,9 +1377,14 @@
           { label: 'Marquer réalisée', cls: 'success', icon: 'check', onClick: function (c) { a.statut = 'Réalisée'; a.realiseeLe = E.today(); S.save(); E.log('Action réalisée ' + a.id, a.libelle); c(); ui.toast('Action réalisée'); E.rerender(); } }].filter(Boolean) });
   }
   function newAction(source, after) {
+    var sc = SC(), srcRec = function (id) { return id ? S.get('incidents', id) || S.get('audits', id) : null; };
     var srcs = [{ v: '', l: 'Autre (initiative HSE)' }].concat(S.all('incidents').filter(function (i) { return i.statut !== 'Clôturé'; }).map(function (i) { return { v: i.id, l: i.id + ' · ' + i.titre }; })).concat(S.all('audits').filter(function (a) { return a.statut === 'Réalisé'; }).map(function (a) { return { v: a.id, l: a.id + ' · ' + a.theme }; }));
-    ui.formModal({ title: 'Nouvelle action corrective', fields: [{ name: 'libelle', label: 'Action', type: 'textarea', required: true }, { name: 'source', label: 'Origine', type: 'select', options: srcs, value: source || '', full: true }, { name: 'responsable', label: 'Responsable', type: 'select', options: empOpts(), value: M(12), required: true }, { name: 'echeance', label: 'Échéance', type: 'date', value: D(30), required: true }, { name: 'priorite', label: 'Priorité', type: 'select', options: ['Haute', 'Moyenne', 'Basse'], value: 'Moyenne' }],
-      onSubmit: function (v) { var a = { id: nextId('actionsHSE', 'ACT-' + yr() + '-', 3), source: v.source, libelle: v.libelle, responsable: v.responsable, echeance: v.echeance, priorite: v.priorite, statut: 'À faire', creee: E.today() }; S.add('actionsHSE', a); if (after) after(a); E.log('Action corrective ' + a.id, a.libelle); E.notify('Action corrective assignée', a.libelle, '#/hse/actions', 'blue'); ui.toast('Action ' + a.id + ' créée'); E.rerender(); } });
+    var s0 = srcRec(source), resp0 = DEFS[(s0 && s0.site) || sc || 'OWE'].act;
+    var fields = [{ name: 'libelle', label: 'Action', type: 'textarea', required: true }, { name: 'source', label: 'Origine', type: 'select', options: srcs, value: source || '', full: true }, { name: 'responsable', label: 'Responsable', type: 'select', options: empOpts(), value: resp0, required: true }, { name: 'echeance', label: 'Échéance', type: 'date', value: D(30), required: true }, { name: 'priorite', label: 'Priorité', type: 'select', options: ['Haute', 'Moyenne', 'Basse'], value: 'Moyenne' }];
+    /* vue globale : port de rattachement (sinon celui de l'origine) */
+    if (!sc) fields.push({ name: 'site', label: 'Port (si aucune origine)', type: 'select', options: PORT_OPTS, value: (s0 && s0.site) || 'OWE' });
+    ui.formModal({ title: 'Nouvelle action corrective', fields: fields,
+      onSubmit: function (v) { var o = srcRec(v.source); var a = { id: nextId('actionsHSE', 'ACT-' + yr() + '-', 3), site: sc || (o && o.site) || v.site || 'OWE', source: v.source, libelle: v.libelle, responsable: v.responsable, echeance: v.echeance, priorite: v.priorite, statut: 'À faire', creee: E.today() }; S.add('actionsHSE', a); if (after) after(a); E.log('Action corrective ' + a.id, a.libelle); E.notify('Action corrective assignée', a.libelle, '#/hse/actions', 'blue'); ui.toast('Action ' + a.id + ' créée'); E.rerender(); } });
   }
   function tabActions(el) {
     var all = S.all('actionsHSE'), st = state.act, late = all.filter(actLate);
@@ -1273,24 +1413,50 @@
     var w = [7, 26, 45, 64, 82, 100];
     return '<div class="hse-bird">' + tiers.map(function (t, i) { var a = w[i], b = w[i + 1], inset = (1 - a / b) / 2 * 100; return '<div class="hse-bird__p"><div style="width:' + b + '%;background:' + t[2] + ';clip-path:polygon(' + inset + '% 0,' + (100 - inset) + '% 0,100% 100%,0 100%)"><b>' + t[1] + '</b></div></div><div class="hse-bird__l"><b>' + t[1] + '</b> ' + esc(t[0]) + '</div>'; }).join('') + '</div><div class="small muted" style="margin-top:8px">12 derniers mois · base : registre des événements + ' + obs + ' cartes d\'observation terrain. Ratio de Bird de référence 1 / 10 / 30 / 600.</div>';
   }
+  /* statistiques mensuelles : un enregistrement par site et par mois ; en vue globale on additionne les deux ports */
+  function moisAgg() {
+    var out = {};
+    S.all('hseMois').forEach(function (m) {
+      var o = out[m.id] || (out[m.id] = { id: m.id });
+      Object.keys(m).forEach(function (k) { if (typeof m[k] === 'number') o[k] = (o[k] || 0) + m[k]; });
+    });
+    return out;
+  }
+  /* comparaison des deux ports (vue globale) */
+  function compareSites() {
+    var rows = ['OWE', 'POG'].map(function (s) {
+      return E.withScope(s, function () { var r = rates(); return { s: s, tf1: r.tf1, tf2: r.tf2, tg: r.tg, h: r.h, act: actifs().length, late: lateActions().length, j: joursSans(), niv: isps(s).niveau }; });
+    });
+    return '<div class="card" style="margin-top:16px"><div class="card__h"><h3>Comparaison des deux ports</h3><span class="sub">12 mois glissants</span></div>' + ui.table([
+      { label: 'Port', render: function (x) { return '<b>' + portName(x.s) + '</b>'; } },
+      { label: 'Heures travaillées', num: true, render: function (x) { return fmt.short(x.h); } },
+      { label: 'TF1', num: true, render: function (x) { return num(x.tf1, 2); } },
+      { label: 'TF2', num: true, render: function (x) { return num(x.tf2, 2); } },
+      { label: 'TG', num: true, render: function (x) { return num(x.tg, 3); } },
+      { label: 'Jours sans AAA', num: true, render: function (x) { return x.j; } },
+      { label: 'Permis actifs', num: true, render: function (x) { return x.act; } },
+      { label: 'Actions en retard', num: true, render: function (x) { return x.late ? '<span class="late">' + x.late + '</span>' : '0'; } },
+      { label: 'Niveau ISPS', render: function (x) { return ui.badge('Niveau ' + x.niv, NIV[x.niv].tone); } }], rows) + '</div>';
+  }
   function tabIndic(el) {
-    var r = rates(), ms = months12(), mois = S.all('hseMois');
+    var r = rates(), ms = months12(), mois = S.all('hseMois'), agg = moisAgg();
     var mk = function (types) { return ms.map(function (m) { return r.inc.filter(function (i) { return i.date.slice(0, 7) === m.key && types.indexOf(i.type) >= 0; }).length; }); };
-    var byType = E.groupBy(permis(), 'type'), mm = function (k) { var x = mois.find(function (m) { return m.id === k; }); return x || {}; };
+    var byType = E.groupBy(permis(), 'type'), mm = function (k) { return agg[k] || {}; };
     var late = lateActions();
     el.innerHTML = '<div class="grid hse-ov">' + counterCard() + '<div class="grid g2 hse-ov__k">' +
       ui.kpi({ label: 'TF1 (avec arrêt)', value: num(r.tf1, 2), icon: 'trend', tone: 'red', foot: r.aaa + ' AAA / ' + fmt.short(r.h) + ' h travaillées' }) +
       ui.kpi({ label: 'TF2 (avec + sans arrêt)', value: num(r.tf2, 2), icon: 'trend', tone: 'orange', foot: (r.aaa + r.asa) + ' accidents sur 12 mois' }) +
       ui.kpi({ label: 'TG (gravité)', value: num(r.tg, 3), icon: 'chart', tone: 'violet', foot: r.jp + ' jours perdus' }) +
       ui.kpi({ label: 'Heures travaillées', value: fmt.short(r.h), icon: 'clock', tone: 'blue', foot: 'dont ' + fmt.short(E.sum(mois, 'heuresEE')) + ' entreprises ext.' }) + '</div></div>' +
-      '<p class="small muted" style="margin:8px 2px 0">TF1 = AAA × 10⁶ / heures travaillées · TF2 = (AAA + ASA) × 10⁶ / heures · TG = jours perdus × 10³ / heures — personnel GPM et entreprises extérieures.</p>' +
+      '<p class="small muted" style="margin:8px 2px 0">TF1 = AAA × 10⁶ / heures travaillées · TF2 = (AAA + ASA) × 10⁶ / heures · TG = jours perdus × 10³ / heures — personnel GPM et entreprises extérieures' + (SC() ? ' · ' + esc(portLong(SC())) : ' · cumul des deux ports') + '.</p>' +
       '<div class="grid g2 keep-1" style="margin-top:16px"><div class="card"><div class="card__h"><h3>Pyramide de Bird</h3></div><div class="card__b">' + bird(r) + '</div></div>' +
       '<div class="card"><div class="card__h"><h3>Évolution mensuelle des événements</h3></div><div class="card__b">' + ui.bars({ labels: ms.map(function (m) { return m.l; }), stacked: true, height: 240, series: [{ name: 'Accidents (AAA + ASA)', values: mk(['AAA', 'ASA']), color: '#d93636' }, { name: 'Presque-accidents & incidents', values: mk(['PA', 'FEU', 'FUI']), color: '#f5c400' }, { name: 'Situations dangereuses', values: mk(['SD']), color: '#2563eb' }, { name: 'Environnement', values: mk(['ENV']), color: '#1e9e4a' }] }) + '</div></div></div>' +
       '<div class="grid g3" style="margin-top:16px"><div class="card"><div class="card__h"><h3>Permis émis par type</h3><span class="sub">registre actuel</span></div><div class="card__b">' + ui.donut(TYPE_KEYS.filter(function (k) { return byType[k]; }).map(function (k) { return { label: TYPES[k].s, value: byType[k].length, color: TYPES[k].c }; }), { sub: 'permis' }) + '</div></div>' +
       '<div class="card"><div class="card__h"><h3>Prévention terrain</h3><span class="sub">par mois</span></div><div class="card__b">' + ui.bars({ labels: ms.map(function (m) { return m.l; }), height: 200, series: [{ name: 'Cartes d\'observation', values: ms.map(function (m) { return mm(m.key).observations || 0; }), color: '#1e9e4a' }, { name: 'Quarts d\'heure sécurité', values: ms.map(function (m) { return mm(m.key).qhs || 0; }), color: '#0f2d5c' }] }) + '</div></div>' +
       '<div class="card"><div class="card__h"><h3>Permis de travail émis</h3><span class="sub">par mois</span></div><div class="card__b">' + ui.line({ labels: ms.map(function (m) { return m.l; }), height: 200, series: [{ name: 'Permis émis', values: ms.map(function (m) { return mm(m.key).permis || 0; }), color: '#d93636' }] }) + '</div></div></div>' +
       '<div class="grid g2 keep-1" style="margin-top:16px"><div class="card"><div class="card__h"><h3>Actions en retard</h3><span class="badge tone-red">' + late.length + '</span><div class="spacer"></div><a class="btn ghost sm" href="#/hse/actions">Plan d\'actions</a></div>' + actList(late) + '</div>' +
-      '<div class="card"><div class="card__h"><h3>Visites & audits sécurité</h3><div class="spacer"></div><a class="btn ghost sm" href="#/hse/audits">Tout voir</a></div><div class="card__b">' + auditSummary() + '</div></div></div>';
+      '<div class="card"><div class="card__h"><h3>Visites & audits sécurité</h3><div class="spacer"></div><a class="btn ghost sm" href="#/hse/audits">Tout voir</a></div><div class="card__b">' + auditSummary() + '</div></div></div>' +
+      (SC() ? '' : compareSites());
   }
   function auditSummary() {
     var done = S.all('audits').filter(function (a) { return a.statut === 'Réalisé'; }), by = E.groupBy(done, 'type');
@@ -1324,8 +1490,8 @@
     $$('#au-t .chip', el).forEach(function (b) { b.onclick = function () { st.type = b.dataset.k; $$('#au-t .chip', el).forEach(function (x) { x.classList.toggle('is-active', x === b); }); draw(); }; });
     $('#au-csv', el).onclick = function () { ui.exportCSV('visites-audits-hse', AUD_COLS, rows()); };
     $('#au-new', el).onclick = function () {
-      ui.formModal({ title: 'Planifier une visite / un audit', fields: [{ name: 'type', label: 'Type', type: 'select', options: AUD_TYPES, required: true }, { name: 'date', label: 'Date', type: 'date', value: D(7), required: true }, { name: 'theme', label: 'Thème', required: true, full: true }, { name: 'unite', label: 'Zone', type: 'select', options: uniteOpts() }, { name: 'entreprise', label: 'Entreprise auditée (si EE)', type: 'select', options: [{ v: '', l: '—' }].concat(E.options('fournisseurs')) }, { name: 'auditeur', label: 'Auditeur / animateur', type: 'select', options: empOpts(), value: M(4) }],
-        onSubmit: function (v) { var a = Object.assign({ id: nextId('audits', 'AUD-' + yr() + '-', 3), statut: 'Planifié', score: null, ecarts: null, constats: [] }, v); S.add('audits', a); E.log('Audit planifié ' + a.id, a.theme); ui.toast('Visite ' + a.id + ' planifiée'); E.rerender(); } });
+      ui.formModal({ title: 'Planifier une visite / un audit', fields: [{ name: 'type', label: 'Type', type: 'select', options: AUD_TYPES, required: true }, { name: 'date', label: 'Date', type: 'date', value: D(7), required: true }, { name: 'theme', label: 'Thème', required: true, full: true }, { name: 'unite', label: 'Zone', type: 'select', options: uniteOpts(), value: def('zone') }, { name: 'entreprise', label: 'Entreprise auditée (si EE)', type: 'select', options: [{ v: '', l: '—' }].concat(E.options('fournisseurs')) }, { name: 'auditeur', label: 'Auditeur / animateur', type: 'select', options: empOpts(), value: def('aud') }],
+        onSubmit: function (v) { var a = Object.assign({ id: nextId('audits', 'AUD-' + yr() + '-', 3), site: SC() || siteOf(v.unite), statut: 'Planifié', score: null, ecarts: null, constats: [] }, v); S.add('audits', a); E.log('Audit planifié ' + a.id, a.theme); ui.toast('Visite ' + a.id + ' planifiée'); E.rerender(); } });
     };
   }
   function openAudit(a) {
@@ -1349,41 +1515,52 @@
 
   /* ------------------------------------------------------------------ onglet Environnement & MARPOL */
   function tabEnv(el) {
-    var ex = S.all('envEaux'), mg = S.all('envMangrove'), dc = S.all('envDechets').slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
+    var sc = SC(), byId = function (a, b) { return a.id.localeCompare(b.id); };
+    /* qualité des eaux : bassin du site actif ; en vue globale, les deux bassins */
+    var exAll = S.all('envEaux').slice().sort(byId), exO = exAll.filter(function (r) { return r.site !== 'POG'; }), exP = exAll.filter(function (r) { return r.site === 'POG'; });
+    var ex = sc ? exAll : exO, mg = S.all('envMangrove'), dc = S.all('envDechets').slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
     var mp = S.all('envMarpol').slice().sort(function (a, b) { return b.date.localeCompare(a.date) || b.id.localeCompare(a.id); });
-    var last = ex[ex.length - 1] || {}, ms = months12();
+    var ms = months12(), lastO = exO[exO.length - 1] || {}, lastP = exP[exP.length - 1] || {};
+    var last = sc ? (ex[ex.length - 1] || {}) : { hc: Math.max(lastO.hc || 0, lastP.hc || 0) };
     var lab = function (k) { var x = ms.find(function (m) { return m.key === k; }); return x ? x.l : k; };
+    var hcOf = function (list, id) { var r = list.find(function (x) { return x.id === id; }); return r ? r.hc : 0; };
+    var navOf = function (list, id) { var r = list.find(function (x) { return x.id === id; }); return r ? r.navires : 0; };
+    var hcSeries = sc ? [{ name: 'HC (mg/l)', values: ex.map(function (r) { return r.hc; }), color: '#0f2d5c' }] :
+      [{ name: 'Owendo (mg/l)', values: ex.map(function (r) { return hcOf(exO, r.id); }), color: '#0f2d5c' }, { name: 'Port-Gentil (mg/l)', values: ex.map(function (r) { return hcOf(exP, r.id); }), color: '#009e60' }];
+    var navSeries = sc ? [{ name: 'Navires en escale', values: ex.map(function (r) { return r.navires; }), color: '#145091' }] :
+      [{ name: 'Owendo', values: ex.map(function (r) { return navOf(exO, r.id); }), color: '#145091' }, { name: 'Port-Gentil', values: ex.map(function (r) { return navOf(exP, r.id); }), color: '#009e60' }];
+    var tblRows = sc ? ex.slice(-6).reverse() : exAll.filter(function (r) { return ex.slice(-6).some(function (x) { return x.id === r.id; }); }).sort(function (a, b) { return b.id.localeCompare(a.id) || (a.site === 'POG' ? 1 : -1); });
     var dang = dc.filter(function (d) { return d.categorie === 'Dangereux'; }), tot = E.sum(dc, 'quantite'), valo = E.sum(dc.filter(function (d) { return /valoris|recycl|régén/i.test(d.filiere); }), 'quantite');
     var m30 = mp.filter(function (m) { return m.date >= D(-30); }), refus = mp.filter(function (m) { return /Refus/.test(m.statut); });
     var alertSt = mg.filter(function (m) { return m.statut !== 'Conforme' && m.statut !== 'Référence'; });
-    el.innerHTML = '<div class="grid g4">' + ui.kpi({ label: 'Hydrocarbures dans le bassin portuaire', value: num(last.hc, 1), unit: 'mg/l', icon: 'drop', tone: last.hc > 2 ? 'red' : last.hc > 1 ? 'orange' : 'green', foot: 'seuil d\'alerte interne 1 mg/l' }) +
+    el.innerHTML = '<div class="grid g4">' + ui.kpi({ label: sc ? 'Hydrocarbures dans le bassin portuaire' : 'Hydrocarbures (max.)', value: num(last.hc || 0, 1), unit: 'mg/l', icon: 'drop', tone: last.hc > 2 ? 'red' : last.hc > 1 ? 'orange' : 'green', foot: sc ? 'seuil d\'alerte interne 1 mg/l' : 'Owendo ' + num(lastO.hc || 0, 1) + ' · Port-Gentil ' + num(lastP.hc || 0, 1) + ' mg/l' }) +
       ui.kpi({ label: 'Déchets des navires reçus (30 j)', value: num(E.sum(m30, 'volume'), 0), unit: 'm³', icon: 'ship', tone: 'blue', foot: m30.length + ' réception(s) MARPOL · ' + refus.length + ' refus' }) +
       ui.kpi({ label: 'Déchets du port évacués / stockés', value: num(tot, 1), unit: 't', icon: 'box', tone: 'violet', foot: num(E.sum(dang, 'quantite'), 1) + ' t de déchets dangereux' }) +
       ui.kpi({ label: 'Taux de valorisation', value: Math.round(valo / Math.max(1, tot) * 100), unit: '%', icon: 'refresh', tone: 'green', foot: 'objectif 60 %' }) + '</div>' +
       (alertSt.length ? '<div style="margin-top:16px">' + alertBox('orange', 'globe', '<b>Surveillance de la mangrove :</b> ' + alertSt.map(function (m) { return esc(m.station) + ' — ' + esc(m.statut.toLowerCase()); }).join(' ; ') + '.') + '</div>' : '') +
       '<div class="card" style="margin-top:16px"><div class="card__h"><h3>Réception des déchets des navires (MARPOL)</h3><span class="sub">installations de réception portuaires · annexes I (hydrocarbures), IV (eaux usées), V (ordures)</span><div class="spacer"></div><button class="btn sm" id="mp-csv">' + icon('download') + 'CSV</button><button class="btn primary sm" id="mp-new">' + icon('plus') + 'Réception</button></div>' +
       ui.table(MP_COLS, mp, { empty: 'Aucune réception enregistrée' }) + '<div class="small muted" style="padding:10px 18px">Chaque navire en escale notifie ses déchets avant l\'arrivée ; le refus d\'un dépôt non conforme est signalé à l\'autorité maritime.</div></div>' +
-      '<div class="grid g2 keep-1" style="margin-top:16px"><div class="card"><div class="card__h"><h3>Qualité des eaux du bassin portuaire</h3><span class="sub">hydrocarbures, moyenne mensuelle (mg/l)</span></div><div class="card__b">' + ui.line({ labels: ex.map(function (r) { return lab(r.id); }), height: 210, series: [{ name: 'HC (mg/l)', values: ex.map(function (r) { return r.hc; }), color: '#0f2d5c' }, { name: 'Seuil d\'alerte 1 mg/l', values: ex.map(function () { return 1; }), color: '#d93636', dash: true }] }) + '</div></div>' +
-      '<div class="card"><div class="card__h"><h3>Navires et déchets reçus</h3><span class="sub">navires en escale par mois</span></div><div class="card__b">' + ui.bars({ labels: ex.map(function (r) { return lab(r.id); }), height: 210, series: [{ name: 'Navires en escale', values: ex.map(function (r) { return r.navires; }), color: '#145091' }] }) + '</div></div></div>' +
+      '<div class="grid g2 keep-1" style="margin-top:16px"><div class="card"><div class="card__h"><h3>Qualité des eaux ' + (sc ? 'du bassin portuaire' : 'des bassins portuaires') + '</h3><span class="sub">hydrocarbures, moyenne mensuelle (mg/l)' + (sc ? ' · ' + esc(portLong(sc)) : ' · Owendo et Port-Gentil') + '</span></div><div class="card__b">' + ui.line({ labels: ex.map(function (r) { return lab(r.id); }), height: 210, series: hcSeries.concat([{ name: 'Seuil d\'alerte 1 mg/l', values: ex.map(function () { return 1; }), color: '#d93636', dash: true }]) }) + '</div></div>' +
+      '<div class="card"><div class="card__h"><h3>Navires et déchets reçus</h3><span class="sub">navires en escale par mois</span></div><div class="card__b">' + ui.bars({ labels: ex.map(function (r) { return lab(r.id); }), height: 210, stacked: !sc, series: navSeries }) + '</div></div></div>' +
       '<div class="card" style="margin-top:16px"><div class="card__h"><h3>Suivi de la qualité des eaux</h3><span class="sub">6 derniers mois · prélèvements au droit des postes</span></div>' + ui.table([
-        { label: 'Mois', render: function (r) { return '<b>' + esc(fmt.month(r.id + '-01')) + '</b>'; } },
+        { label: 'Mois', render: function (r) { return '<b>' + esc(fmt.month(r.id + '-01')) + '</b>' + (sc ? '' : '<div class="small muted">' + portName(r.site) + '</div>'); } },
         { label: 'HC (mg/l)', num: true, render: function (r) { return '<span class="gz ' + (r.hc > 2 ? 'bad' : r.hc > 1 ? 'warn' : 'ok') + '">' + num(r.hc, 1) + '</span>'; } },
         { label: 'MES (mg/l)', num: true, render: function (r) { return '<span class="gz ' + (r.mes > 35 ? 'bad' : 'ok') + '">' + r.mes + '</span>'; } },
         { label: 'O₂ dissous (mg/l)', num: true, render: function (r) { return '<span class="gz ' + (r.o2 < 6 ? 'warn' : 'ok') + '">' + num(r.o2, 1) + '</span>'; } },
         { label: 'pH', num: true, render: function (r) { return num(r.ph, 1); } },
-        { label: 'Navires en escale', num: true, render: function (r) { return r.navires; } }], ex.slice(-6).reverse()) + '<div class="small muted" style="padding:10px 18px">Seuils internes : HC 1 mg/l (alerte) · MES 35 mg/l · O₂ dissous ≥ 6 mg/l.</div></div>' +
+        { label: 'Navires en escale', num: true, render: function (r) { return r.navires; } }], tblRows) + '<div class="small muted" style="padding:10px 18px">Seuils internes : HC 1 mg/l (alerte) · MES 35 mg/l · O₂ dissous ≥ 6 mg/l.</div></div>' +
       '<div class="grid g2 keep-1" style="margin-top:16px"><div class="card"><div class="card__h"><h3>Surveillance de la mangrove</h3><div class="spacer"></div><button class="btn sm" id="mg-new">' + icon('plus') + 'Observation</button></div><div class="list">' +
       mg.map(function (m) { var tone = m.statut === 'Conforme' ? 'green' : m.statut === 'Référence' ? 'grey' : 'orange'; return '<div class="list__item"><div class="list__icon tone-' + tone + '">' + icon('globe') + '</div><div class="list__body"><div class="row" style="gap:6px"><b>' + esc(m.station) + '</b>' + ui.badge(m.statut, tone) + '</div><div class="small muted">' + fmt.date(m.date) + ' · HC sédiments ' + m.hc + ' mg/kg · végétation : ' + esc(m.vegetation) + ' · ' + esc(m.faune) + '</div>' + (m.obs ? '<div class="small">' + esc(m.obs) + '</div>' : '') + '</div></div>'; }).join('') + '</div></div>' +
       '<div class="card"><div class="card__h"><h3>Registre des déchets du port</h3><div class="spacer"></div><button class="btn sm" id="dc-csv">' + icon('download') + 'CSV</button><button class="btn sm" id="dc-new">' + icon('plus') + 'Enlèvement</button></div>' + ui.table(DC_COLS, dc) + '</div></div>';
     $('#dc-csv', el).onclick = function () { ui.exportCSV('registre-dechets', DC_COLS, dc); };
     $('#mp-csv', el).onclick = function () { ui.exportCSV('dechets-navires-marpol', MP_COLS, mp); };
     $('#mp-new', el).onclick = function () {
-      ui.formModal({ title: 'Réception de déchets d\'un navire', sub: 'Convention MARPOL — installations de réception portuaires', fields: [{ name: 'navire', label: 'Navire', required: true, value: 'MV ' }, { name: 'site', label: 'Port', type: 'select', options: [{ v: 'OWE', l: 'Owendo' }, { v: 'POG', l: 'Port-Gentil' }] }, { name: 'annexe', label: 'Annexe MARPOL', type: 'select', options: ['Annexe I', 'Annexe IV', 'Annexe V', 'Annexe VI'] }, { name: 'nature', label: 'Nature', type: 'select', options: ['Boues d\'hydrocarbures (sludge)', 'Eaux de cale huileuses', 'Huiles usagées', 'Résidus de cargaison (slops)', 'Eaux usées sanitaires', 'Ordures de navire', 'Résidus d\'épurateurs de fumées'] }, { name: 'volume', label: 'Volume (m³)', type: 'number', step: '0.5', value: 5, required: true }, { name: 'prestataire', label: 'Prestataire agréé', value: 'Gabon Recyclage Industriel (démo)' }, { name: 'date', label: 'Date', type: 'date', value: E.today() }, { name: 'statut', label: 'Statut', type: 'select', options: ['Programmé', 'Réceptionné', 'Refusé — déchet non conforme'] }],
-        onSubmit: function (v) { v.id = nextId('envMarpol', 'MRP-' + yr() + '-', 3); v.volume = +v.volume; S.add('envMarpol', v); E.log('Déchets navire ' + v.id, v.navire + ' · ' + v.annexe + ' · ' + v.volume + ' m³', 'hse'); ui.toast('Réception ' + v.id + ' enregistrée'); E.rerender(); } });
+      ui.formModal({ title: 'Réception de déchets d\'un navire', sub: 'Convention MARPOL — installations de réception portuaires' + (sc ? ' · ' + portLong(sc) : ''), fields: [{ name: 'navire', label: 'Navire', required: true, value: 'MV ' }].concat(sc ? [] : [{ name: 'site', label: 'Port', type: 'select', options: PORT_OPTS }]).concat([{ name: 'annexe', label: 'Annexe MARPOL', type: 'select', options: ['Annexe I', 'Annexe IV', 'Annexe V', 'Annexe VI'] }, { name: 'nature', label: 'Nature', type: 'select', options: ['Boues d\'hydrocarbures (sludge)', 'Eaux de cale huileuses', 'Huiles usagées', 'Résidus de cargaison (slops)', 'Eaux usées sanitaires', 'Ordures de navire', 'Résidus d\'épurateurs de fumées'] }, { name: 'volume', label: 'Volume (m³)', type: 'number', step: '0.5', value: 5, required: true }, { name: 'prestataire', label: 'Prestataire agréé', value: 'Gabon Recyclage Industriel (démo)' }, { name: 'date', label: 'Date', type: 'date', value: E.today() }, { name: 'statut', label: 'Statut', type: 'select', options: ['Programmé', 'Réceptionné', 'Refusé — déchet non conforme'] }]),
+        onSubmit: function (v) { v.id = nextId('envMarpol', 'MRP-' + yr() + '-', 3); v.site = sc || v.site || 'OWE'; v.volume = +v.volume; S.add('envMarpol', v); E.log('Déchets navire ' + v.id, v.navire + ' · ' + v.annexe + ' · ' + v.volume + ' m³', 'hse'); ui.toast('Réception ' + v.id + ' enregistrée'); E.rerender(); } });
     };
     $('#dc-new', el).onclick = function () {
-      ui.formModal({ title: 'Enregistrer un enlèvement de déchets', fields: [{ name: 'type', label: 'Nature du déchet', required: true, full: true }, { name: 'categorie', label: 'Catégorie', type: 'select', options: ['Dangereux', 'Non dangereux'] }, { name: 'quantite', label: 'Quantité (t)', type: 'number', step: '0.1', value: 1, required: true }, { name: 'filiere', label: 'Filière', type: 'select', options: ['Valorisation matière', 'Recyclage', 'Régénération', 'Incinération', 'Centre de traitement agréé', 'Enfouissement (CET)'] }, { name: 'prestataire', label: 'Prestataire', value: 'Gabon Recyclage Industriel (démo)' }, { name: 'date', label: 'Date', type: 'date', value: E.today() }, { name: 'statut', label: 'Statut', type: 'select', options: ['Enlevé', 'En attente d\'enlèvement', 'Stocké sur site'] }],
-        onSubmit: function (v) { v.id = nextId('envDechets', 'BSD-' + yr() + '-', 3); v.quantite = +v.quantite; S.add('envDechets', v); E.log('Déchets ' + v.id, v.type + ' · ' + v.quantite + ' t', 'hse'); ui.toast('Bordereau ' + v.id + ' enregistré'); E.rerender(); } });
+      ui.formModal({ title: 'Enregistrer un enlèvement de déchets', sub: sc ? portLong(sc) : '', fields: [{ name: 'type', label: 'Nature du déchet', required: true, full: true }].concat(sc ? [] : [{ name: 'site', label: 'Port', type: 'select', options: PORT_OPTS }]).concat([{ name: 'categorie', label: 'Catégorie', type: 'select', options: ['Dangereux', 'Non dangereux'] }, { name: 'quantite', label: 'Quantité (t)', type: 'number', step: '0.1', value: 1, required: true }, { name: 'filiere', label: 'Filière', type: 'select', options: ['Valorisation matière', 'Recyclage', 'Régénération', 'Incinération', 'Centre de traitement agréé', 'Enfouissement (CET)'] }, { name: 'prestataire', label: 'Prestataire', value: 'Gabon Recyclage Industriel (démo)' }, { name: 'date', label: 'Date', type: 'date', value: E.today() }, { name: 'statut', label: 'Statut', type: 'select', options: ['Enlevé', 'En attente d\'enlèvement', 'Stocké sur site'] }]),
+        onSubmit: function (v) { v.id = nextId('envDechets', 'BSD-' + yr() + '-', 3); v.site = sc || v.site || 'OWE'; v.quantite = +v.quantite; S.add('envDechets', v); E.log('Déchets ' + v.id, v.type + ' · ' + v.quantite + ' t', 'hse'); ui.toast('Bordereau ' + v.id + ' enregistré'); E.rerender(); } });
     };
     $('#mg-new', el).onclick = function () {
       ui.formModal({ title: 'Observation de la mangrove', fields: [{ name: 'id', label: 'Station', type: 'select', options: mg.map(function (m) { return { v: m.id, l: m.station }; }), full: true }, { name: 'date', label: 'Date', type: 'date', value: E.today() }, { name: 'hc', label: 'HC sédiments (mg/kg)', type: 'number', value: 150 }, { name: 'vegetation', label: 'État de la végétation', type: 'select', options: ['Bon', 'Stress léger', 'Dégradé'] }, { name: 'statut', label: 'Statut', type: 'select', options: ['Conforme', 'Surveillance renforcée', 'Non conforme'] }, { name: 'obs', label: 'Observations', type: 'textarea' }],
@@ -1391,14 +1568,14 @@
     };
   }
   var DC_COLS = [
-    { label: 'Bordereau', render: function (d) { return '<b class="nowrap">' + d.id + '</b><div class="small muted">' + fmt.dateShort(d.date) + '</div>'; }, csv: function (d) { return d.id; } },
+    { label: 'Bordereau', render: function (d) { return '<b class="nowrap">' + d.id + '</b><div class="small muted">' + fmt.dateShort(d.date) + (SC() ? '' : ' · ' + portName(d.site)) + '</div>'; }, csv: function (d) { return d.id; } },
     { label: 'Déchet', render: function (d) { return '<div class="hse-cell"><b>' + esc(d.type) + '</b><div class="small muted">' + esc(d.filiere) + '</div></div>'; }, csv: function (d) { return d.type + ' — ' + d.filiere; } },
     { label: 'Quantité', num: true, render: function (d) { return num(d.quantite, 1) + ' t'; }, csv: function (d) { return d.quantite; } },
     { label: 'Catégorie', render: function (d) { return ui.badge(d.categorie, d.categorie === 'Dangereux' ? 'red' : 'grey'); }, csv: function (d) { return d.categorie; } }
   ];
   var MP_COLS = [
     { label: 'N°', render: function (m) { return '<b class="nowrap">' + m.id + '</b><div class="small muted">' + fmt.dateShort(m.date) + '</div>'; }, csv: function (m) { return m.id; } },
-    { label: 'Navire', render: function (m) { return '<b>' + esc(m.navire) + '</b><div class="small muted">' + (m.site === 'POG' ? 'Port-Gentil' : 'Owendo') + '</div>'; }, csv: function (m) { return m.navire; } },
+    { label: 'Navire', render: function (m) { return '<b>' + esc(m.navire) + '</b>' + (SC() ? '' : '<div class="small muted">' + portName(m.site) + '</div>'); }, csv: function (m) { return m.navire + ' (' + portName(m.site) + ')'; } },
     { label: 'Déchet', render: function (m) { return '<div class="hse-cell">' + ui.badge(m.annexe, m.annexe === 'Annexe I' ? 'violet' : m.annexe === 'Annexe IV' ? 'blue' : 'grey') + ' ' + esc(m.nature) + '<div class="small muted">' + esc(m.prestataire) + '</div></div>'; }, csv: function (m) { return m.annexe + ' — ' + m.nature; } },
     { label: 'Volume', num: true, render: function (m) { return num(m.volume, 1) + ' m³'; }, csv: function (m) { return m.volume; } },
     { label: 'Statut', render: function (m) { return ui.badge(m.statut, /Refus/.test(m.statut) ? 'red' : m.statut === 'Réceptionné' ? 'green' : 'orange'); }, csv: function (m) { return m.statut; } }
@@ -1408,41 +1585,60 @@
   var NIV = { 1: { l: 'Normal', tone: 'green', mesures: ['Contrôle des accès par badge à toutes les entrées', 'Rondes de surveillance selon le plan de sûreté', 'Contrôle par sondage des véhicules et des colis', 'Surveillance des zones d\'accès restreint et des navires à quai'] },
     2: { l: 'Renforcé', tone: 'orange', mesures: ['Fouille systématique des véhicules et des colis', 'Réduction du nombre d\'accès ouverts (une entrée par port)', 'Rondes doublées, surveillance côté mer par la vedette', 'Accompagnement obligatoire de tous les visiteurs', 'Déclaration de sûreté avec chaque navire'] },
     3: { l: 'Exceptionnel', tone: 'red', mesures: ['Suspension des accès non indispensables', 'Évacuation ou interdiction de zones sur instruction de l\'autorité', 'Arrêt possible des opérations de manutention', 'Coordination permanente avec l\'autorité désignée et les forces de l\'ordre'] } };
-  function isps() { var x = S.get('surete', 'ISPS'); if (!x) { x = { id: 'ISPS', niveau: 1, depuis: nowISO(), par: 'Système', motif: '', historique: [] }; S.all('surete').push(x); S.save(); } return x; }
+  /* Niveau de sûreté propre à chaque installation portuaire : enregistrement « ISPS » (Owendo) et « ISPS-POG » (Port-Gentil). */
+  function newIsps(site) { return { id: site === 'POG' ? 'ISPS-POG' : 'ISPS', site: site, niveau: 1, depuis: nowISO(), par: 'Système', motif: 'Niveau normal', historique: [{ at: nowISO(), niveau: 1, par: 'Système', motif: 'Niveau 1 — situation normale' }] }; }
+  function isps(site) {
+    site = site || SC() || 'OWE';
+    var x = S.raw('surete').find(function (r) { return r.site === site; });
+    if (!x) { x = newIsps(site); S.raw('surete').push(x); S.save(); }
+    return x;
+  }
+  /* niveau le plus élevé des deux ports (vue globale) */
+  function ispsMax() { return Math.max(isps('OWE').niveau, isps('POG').niveau); }
   function badgeState(b) { if (b.statut === 'Suspendu' || b.statut === 'Demande en cours') return b.statut; var d = E.daysBetween(E.today(), b.expiration); return d < 0 ? 'Expiré' : d <= 15 ? 'Expire bientôt' : 'Actif'; }
   var BADGE_TONE = { 'Actif': 'green', 'Expire bientôt': 'orange', 'Expiré': 'red', 'Suspendu': 'grey', 'Demande en cours': 'violet' };
-  function changeNiveau() {
-    var x = isps();
-    ui.formModal({ title: 'Modifier le niveau de sûreté ISPS', sub: 'Décision de l\'autorité désignée — mise en œuvre par l\'agent de sûreté de l\'installation portuaire (PFSO)', okLabel: 'Appliquer le niveau',
-      intro: '<div class="alert tone-blue" style="margin-bottom:14px">' + icon('info') + '<div>Le changement est horodaté, notifié aux équipes et aux navires à quai, et tracé dans le journal d\'audit.</div></div>',
-      fields: [{ name: 'niveau', label: 'Niveau de sûreté', type: 'select', options: [{ v: 1, l: 'Niveau 1 — normal' }, { v: 2, l: 'Niveau 2 — renforcé' }, { v: 3, l: 'Niveau 3 — exceptionnel' }], value: x.niveau }, { name: 'motif', label: 'Motif / instruction reçue', type: 'textarea', required: true }],
+  /* Changement du niveau de sûreté d'UN port (celui de l'espace actif ; en vue globale, le port est choisi dans le formulaire). */
+  function changeNiveau(site0) {
+    var sc = SC(), site = sc || site0 || 'OWE';
+    var fields = [{ name: 'niveau', label: 'Niveau de sûreté', type: 'select', options: [{ v: 1, l: 'Niveau 1 — normal' }, { v: 2, l: 'Niveau 2 — renforcé' }, { v: 3, l: 'Niveau 3 — exceptionnel' }], value: isps(site).niveau }, { name: 'motif', label: 'Motif / instruction reçue', type: 'textarea', required: true }];
+    if (!sc) fields.unshift({ name: 'port', label: 'Installation portuaire', type: 'select', options: PORT_OPTS.map(function (o) { return { v: o.v, l: o.l + ' — actuellement niveau ' + isps(o.v).niveau }; }), value: site, required: true });
+    ui.formModal({ title: 'Modifier le niveau de sûreté ISPS', sub: (sc ? portLong(sc) + ' — ' : '') + 'décision de l\'autorité désignée, mise en œuvre par l\'agent de sûreté de l\'installation portuaire (PFSO)', okLabel: 'Appliquer le niveau',
+      intro: '<div class="alert tone-blue" style="margin-bottom:14px">' + icon('info') + '<div>Chaque port a son propre niveau de sûreté. Le changement est horodaté, notifié aux équipes et aux navires à quai du port concerné, et tracé dans le journal d\'audit.</div></div>',
+      fields: fields,
       onSubmit: function (v) {
-        var n = +v.niveau; if (n === x.niveau) { ui.toast('Le port est déjà au niveau ' + n + '.', 'err'); return false; }
+        var s = sc || v.port || site, x = isps(s);
+        var n = +v.niveau; if (n === x.niveau) { ui.toast('Le port ' + (s === 'POG' ? 'de Port-Gentil' : 'd\'Owendo') + ' est déjà au niveau ' + n + '.', 'err'); return false; }
         x.historique = x.historique || []; x.historique.unshift({ at: nowISO(), niveau: n, par: user().name, motif: v.motif });
         x.niveau = n; x.depuis = nowISO(); x.par = user().name; x.motif = v.motif; S.save();
-        E.log('Niveau de sûreté ISPS ' + n, v.motif, 'hse');
-        E.notify('Niveau de sûreté ISPS : ' + n + ' (' + NIV[n].l.toLowerCase() + ')', v.motif, '#/hse/surete', NIV[n].tone === 'green' ? 'green' : NIV[n].tone === 'orange' ? 'orange' : 'red');
-        ui.toast('Niveau de sûreté ' + n + ' appliqué — équipes et navires informés'); setTimeout(E.rerender);
+        E.withScope(s, function () {
+          E.log('Niveau de sûreté ISPS ' + n + ' · ' + portName(s), v.motif, 'hse');
+          E.notify('Niveau de sûreté ISPS ' + portName(s) + ' : ' + n + ' (' + NIV[n].l.toLowerCase() + ')', v.motif, '#/hse/surete', NIV[n].tone === 'green' ? 'green' : NIV[n].tone === 'orange' ? 'orange' : 'red');
+        });
+        ui.toast('Niveau de sûreté ' + n + ' appliqué au port ' + (s === 'POG' ? 'de Port-Gentil' : 'd\'Owendo') + ' — équipes et navires informés'); setTimeout(E.rerender);
       } });
   }
+  /* max+1 calculé sur toute la collection (les deux sites) */
+  function nextNum(col, base) { return S.raw(col).reduce(function (m, x) { return Math.max(m, +String(x.id).replace(/\D/g, '') || 0); }, base) + 1; }
   function nouveauVisiteur() {
-    ui.formModal({ title: 'Enregistrer un visiteur / un véhicule', sub: 'Registre des accès à l\'installation portuaire', okLabel: 'Enregistrer l\'entrée',
+    var sc = SC();
+    ui.formModal({ title: 'Enregistrer un visiteur / un véhicule', sub: 'Registre des accès à l\'installation portuaire' + (sc ? ' · ' + portLong(sc) : ''), okLabel: 'Enregistrer l\'entrée',
       fields: [{ name: 'nom', label: 'Nom et prénom', required: true }, { name: 'piece', label: 'Pièce d\'identité / badge', required: true, placeholder: 'CNI, passeport ou n° de badge' }, { name: 'organisme', label: 'Organisme', required: true }, { name: 'motif', label: 'Motif de la visite', required: true },
-        { name: 'hote', label: 'Personne visitée', type: 'select', options: empOpts() }, { name: 'site', label: 'Port', type: 'select', options: [{ v: 'OWE', l: 'Owendo' }, { v: 'POG', l: 'Port-Gentil' }] }, { name: 'vehicule', label: 'Véhicule (immatriculation)', placeholder: 'facultatif' }],
+        { name: 'hote', label: 'Personne visitée', type: 'select', options: empOpts() }].concat(sc ? [] : [{ name: 'site', label: 'Port', type: 'select', options: PORT_OPTS }]).concat([{ name: 'vehicule', label: 'Véhicule (immatriculation)', placeholder: 'facultatif' }]),
       onSubmit: function (v) {
-        var n = S.all('visiteurs').reduce(function (m, x) { return Math.max(m, +String(x.id).replace(/\D/g, '') || 0); }, 8800) + 1, d = new Date();
-        var o = { id: 'VIS-' + String(n).padStart(4, '0'), date: E.today(), entree: pad(d.getHours()) + ':' + pad(d.getMinutes()), sortie: '', nom: v.nom, piece: v.piece, organisme: v.organisme, motif: v.motif, hote: v.hote, site: v.site, vehicule: v.vehicule || '', statut: 'Sur site' };
+        var n = nextNum('visiteurs', 8800), d = new Date();
+        var o = { id: 'VIS-' + String(n).padStart(4, '0'), date: E.today(), entree: pad(d.getHours()) + ':' + pad(d.getMinutes()), sortie: '', nom: v.nom, piece: v.piece, organisme: v.organisme, motif: v.motif, hote: v.hote, site: sc || v.site || 'OWE', vehicule: v.vehicule || '', statut: 'Sur site' };
         S.add('visiteurs', o); E.log('Entrée visiteur ' + o.id, o.nom + ' · ' + o.organisme, 'hse'); ui.toast('Entrée enregistrée — badge visiteur remis à ' + o.nom); setTimeout(E.rerender);
       } });
   }
   function nouveauBadge() {
-    ui.formModal({ title: 'Demande de badge d\'accès', sub: 'Contrôle d\'identité puis visa du PFSO', okLabel: 'Émettre la demande',
-      fields: [{ name: 'titulaire', label: 'Titulaire', required: true }, { name: 'type', label: 'Type', type: 'select', options: ['Permanent GPM', 'Entreprise extérieure', 'Transporteur (camion)', 'Agent consignataire', 'Administration (douane)'] }, { name: 'organisme', label: 'Organisme', required: true },
-        { name: 'zones', label: 'Zones autorisées', type: 'select', options: ['Parc à conteneurs', 'Zone d\'accès restreint (quais)', 'Zone pétrolière (poste 4 / soutage)', 'Toutes zones'] }, { name: 'duree', label: 'Validité', type: 'select', options: [{ v: 30, l: '1 mois' }, { v: 180, l: '6 mois' }, { v: 365, l: '1 an' }], value: 365 }],
+    var sc = SC();
+    ui.formModal({ title: 'Demande de badge d\'accès', sub: 'Contrôle d\'identité puis visa du PFSO' + (sc ? ' · ' + portLong(sc) : ''), okLabel: 'Émettre la demande',
+      fields: [{ name: 'titulaire', label: 'Titulaire', required: true }, { name: 'type', label: 'Type', type: 'select', options: ['Permanent GPM', 'Entreprise extérieure', 'Transporteur (camion)', 'Agent consignataire', 'Administration (douane)'] }, { name: 'organisme', label: 'Organisme', required: true }].concat(sc ? [] : [{ name: 'site', label: 'Port', type: 'select', options: PORT_OPTS }]).concat([
+        { name: 'zones', label: 'Zones autorisées', type: 'select', options: ['Parc à conteneurs', 'Zone d\'accès restreint (quais)', 'Zone pétrolière (poste 4 / soutage)', 'Toutes zones'] }, { name: 'duree', label: 'Validité', type: 'select', options: [{ v: 30, l: '1 mois' }, { v: 180, l: '6 mois' }, { v: 365, l: '1 an' }], value: 365 }]),
       onSubmit: function (v) {
-        var n = S.all('badgesISPS').reduce(function (m, x) { return Math.max(m, +String(x.id).replace(/\D/g, '') || 0); }, 6000) + 1;
-        var b = { id: 'BDG-' + String(n).padStart(4, '0'), titulaire: v.titulaire, type: v.type, organisme: v.organisme, zones: v.zones === 'Toutes zones' ? ['Zone d\'accès restreint (quais)', 'Parc à conteneurs', 'Zone pétrolière (poste 4 / soutage)', 'Bâtiments administratifs'] : [v.zones], emission: E.today(), expiration: E.addDays(E.today(), +v.duree), statut: 'Demande en cours' };
-        S.add('badgesISPS', b); E.log('Demande de badge ' + b.id, b.titulaire, 'hse'); E.notify('Badge à viser (PFSO)', b.titulaire + ' — ' + b.organisme, '#/hse/surete', 'violet'); ui.toast('Demande ' + b.id + ' transmise au PFSO'); setTimeout(E.rerender);
+        var n = nextNum('badgesISPS', 6000);
+        var b = { id: 'BDG-' + String(n).padStart(4, '0'), site: sc || v.site || 'OWE', titulaire: v.titulaire, type: v.type, organisme: v.organisme, zones: v.zones === 'Toutes zones' ? ['Zone d\'accès restreint (quais)', 'Parc à conteneurs', 'Zone pétrolière (poste 4 / soutage)', 'Bâtiments administratifs'] : [v.zones], emission: E.today(), expiration: E.addDays(E.today(), +v.duree), statut: 'Demande en cours' };
+        S.add('badgesISPS', b); E.log('Demande de badge ' + b.id, b.titulaire + ' · ' + portName(b.site), 'hse'); E.notify('Badge à viser (PFSO)', b.titulaire + ' — ' + b.organisme, '#/hse/surete', 'violet'); ui.toast('Demande ' + b.id + ' transmise au PFSO'); setTimeout(E.rerender);
       } });
   }
   function ficheBadge(b) {
@@ -1456,8 +1652,20 @@
     ui.modal({ title: 'Badge ' + b.id, sub: esc(b.titulaire), body: '<div class="hse-badgecard"><div class="hse-badgecard__h"><b>GPM · Accès portuaire</b><span>' + esc(b.id) + '</span></div><div class="hse-badgecard__b">' + ui.avatar(b.titulaire) + '<div><b>' + esc(b.titulaire) + '</b><div class="small muted">' + esc(b.organisme) + '</div><div class="small">' + esc(b.type) + '</div></div></div><div class="hse-badgecard__f">' + ui.badge(st, BADGE_TONE[st]) + '<span class="small">valide jusqu\'au <b>' + fmt.date(b.expiration) + '</b></span></div></div>' +
       '<dl class="kv" style="margin-top:14px"><dt>Zones autorisées</dt><dd>' + esc((b.zones || []).join(' · ')) + '</dd><dt>Émis le</dt><dd>' + fmt.date(b.emission) + '</dd></dl>', actions: acts });
   }
+  /* carte du niveau de sûreté d'un port */
+  function nivCard(x, dual) {
+    var niv = NIV[x.niveau];
+    return '<div class="card hse-niv n' + x.niveau + (dual ? ' hse-niv--dual' : '') + '"><div class="card__b"><div class="hse-niv__top"><span>' + (dual ? '<b class="hse-niv__port">' + icon('pin') + 'Port ' + (x.site === 'POG' ? 'de Port-Gentil' : 'd\'Owendo') + '</b>' : 'Niveau de sûreté ISPS en vigueur') + '</span>' + (isHSE() ? '<button class="btn sm" data-niv="' + x.site + '">' + icon('edit') + 'Modifier</button>' : '') + '</div>' +
+      '<div class="hse-niv__lvl">' + [1, 2, 3].map(function (n) { return '<div class="' + (n === x.niveau ? 'on' : '') + '"><b>' + n + '</b><span>' + NIV[n].l + '</span></div>'; }).join('') + '</div>' +
+      '<p class="small" style="margin:12px 0 4px">Depuis le <b>' + fDT(x.depuis) + '</b> · ' + esc(x.par || '') + '</p><p class="small muted" style="margin:0">' + esc(x.motif || '') + '</p>' +
+      (dual ? '<details class="hse-niv__more"><summary>Mesures applicables au niveau ' + x.niveau + '</summary><ul class="hse-mes">' + niv.mesures.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul></details>' :
+        '<h4 class="hse-h4">Mesures applicables au niveau ' + x.niveau + '</h4><ul class="hse-mes">' + niv.mesures.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>') + '</div></div>';
+  }
   function tabSurete(el) {
-    var x = isps(), niv = NIV[x.niveau], st = state.sur;
+    var sc = SC(), x = isps(), st = state.sur;
+    /* historique des niveaux : celui du port ; en vue globale, les deux ports fusionnés */
+    var hist = sc ? (x.historique || []).map(function (h) { return Object.assign({ site: sc }, h); }) :
+      ['OWE', 'POG'].reduce(function (a, s) { return a.concat((isps(s).historique || []).map(function (h) { return Object.assign({ site: s }, h); })); }, []).sort(function (a, b) { return String(b.at).localeCompare(String(a.at)); });
     var vis = S.all('visiteurs').slice().sort(function (a, b) { return (b.date + b.entree).localeCompare(a.date + a.entree); });
     var surSite = vis.filter(function (v) { return v.statut === 'Sur site'; }), today = vis.filter(function (v) { return v.date === E.today(); });
     var badges = S.all('badgesISPS'), bAlert = badges.filter(function (b) { var s = badgeState(b); return s === 'Expiré' || s === 'Expire bientôt'; }), bDem = badges.filter(function (b) { return badgeState(b) === 'Demande en cours'; });
@@ -1465,47 +1673,56 @@
     var exs = S.all('exercicesISPS').slice().sort(function (a, b) { return a.date.localeCompare(b.date); });
     var lastEx = exs.filter(function (e) { return e.statut === 'Réalisé'; }).slice(-1)[0], nextEx = exs.find(function (e) { return e.statut === 'Planifié'; });
     var html = '<div class="grid g-1-2 hse-sur">' +
-      '<div class="card hse-niv n' + x.niveau + '"><div class="card__b"><div class="hse-niv__top"><span>Niveau de sûreté ISPS en vigueur</span>' + (isHSE() ? '<button class="btn sm" id="sur-niv">' + icon('edit') + 'Modifier</button>' : '') + '</div>' +
-        '<div class="hse-niv__lvl">' + [1, 2, 3].map(function (n) { return '<div class="' + (n === x.niveau ? 'on' : '') + '"><b>' + n + '</b><span>' + NIV[n].l + '</span></div>'; }).join('') + '</div>' +
-        '<p class="small" style="margin:12px 0 4px">Depuis le <b>' + fDT(x.depuis) + '</b> · ' + esc(x.par || '') + '</p><p class="small muted" style="margin:0">' + esc(x.motif || '') + '</p>' +
-        '<h4 class="hse-h4">Mesures applicables au niveau ' + x.niveau + '</h4><ul class="hse-mes">' + niv.mesures.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul></div></div>' +
+      (sc ? nivCard(x) : '<div class="stack">' + nivCard(isps('OWE'), true) + nivCard(isps('POG'), true) + '</div>') +
       '<div class="stack"><div class="grid g4" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">' +
         ui.kpi({ label: 'Visiteurs sur site', value: surSite.length, icon: 'users', tone: 'blue', foot: today.length + ' entrée(s) aujourd\'hui' }) +
         ui.kpi({ label: 'Badges actifs', value: badges.filter(function (b) { var s = badgeState(b); return s === 'Actif' || s === 'Expire bientôt'; }).length, icon: 'badge', tone: 'green', foot: bAlert.length + ' à renouveler · ' + bDem.length + ' demande(s)' }) +
         ui.kpi({ label: 'Déclarations de sûreté', value: dosSign.length, unit: 'à signer', icon: 'doc', tone: dosSign.length ? 'orange' : 'green', foot: dos.length + ' déclarations enregistrées' }) +
         ui.kpi({ label: 'Prochain exercice', value: nextEx ? fmt.dateShort(nextEx.date) : '—', icon: 'target', tone: 'violet', foot: lastEx ? 'dernier : ' + lastEx.score + ' / 100' : '' }) + '</div>' +
-        '<div class="card"><div class="card__h"><h3>Historique des niveaux</h3></div><div class="card__b"><div class="timeline">' + (x.historique || []).slice(0, 4).map(function (h, i) { return '<div class="tl-item ' + (i === 0 ? 'current' : 'done') + '"><b>Niveau ' + h.niveau + ' — ' + esc(NIV[h.niveau].l) + '</b><span>' + fDT(h.at) + ' · ' + esc(h.par) + ' · ' + esc(h.motif) + '</span></div>'; }).join('') + '</div></div></div></div></div>';
+        '<div class="card"><div class="card__h"><h3>Historique des niveaux</h3>' + (sc ? '' : '<span class="sub">Owendo et Port-Gentil</span>') + '</div><div class="card__b"><div class="timeline">' + hist.slice(0, sc ? 4 : 6).map(function (h, i) { return '<div class="tl-item ' + (i === 0 ? 'current' : 'done') + '"><b>' + (sc ? '' : portName(h.site) + ' · ') + 'Niveau ' + h.niveau + ' — ' + esc(NIV[h.niveau].l) + '</b><span>' + fDT(h.at) + ' · ' + esc(h.par) + ' · ' + esc(h.motif) + '</span></div>'; }).join('') + '</div></div></div></div></div>';
     html += '<div class="chips hse-surchips" id="sur-vue" style="margin:16px 0 12px">' + [['badges', 'Badges d\'accès'], ['visiteurs', 'Visiteurs & véhicules'], ['dos', 'Déclarations de sûreté'], ['exercices', 'Exercices & entraînements']].map(function (c) { return '<button class="chip' + (st.vue === c[0] ? ' is-active' : '') + '" data-k="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div><div id="sur-body"></div>';
     el.innerHTML = html;
-    var b = $('#sur-niv', el); if (b) b.onclick = changeNiveau;
+    $$('[data-niv]', el).forEach(function (bt) { bt.onclick = function () { changeNiveau(bt.dataset.niv); }; });
     $$('#sur-vue .chip', el).forEach(function (c) { c.onclick = function () { st.vue = c.dataset.k; tabSurete(el); }; });
     var sb = $('#sur-body', el);
     if (st.vue === 'badges') {
       var BC = [{ label: 'Badge', render: function (x) { return '<b class="nowrap">' + x.id + '</b>'; }, csv: function (x) { return x.id; } }, { label: 'Titulaire', render: function (x) { return '<div class="hse-cell"><b>' + esc(x.titulaire) + '</b><div class="small muted">' + esc(x.organisme) + '</div></div>'; }, csv: function (x) { return x.titulaire; } }, { label: 'Type', key: 'type' }, { label: 'Zones', render: function (x) { return '<span class="small">' + esc((x.zones || []).join(' · ')) + '</span>'; }, csv: function (x) { return (x.zones || []).join(' / '); } }, { label: 'Expiration', render: function (x) { return '<span class="nowrap">' + fmt.date(x.expiration) + '</span>'; }, csv: function (x) { return x.expiration; } }, { label: 'État', render: function (x) { var s = badgeState(x); return ui.badge(s, BADGE_TONE[s]); }, csv: badgeState }];
+      if (!sc) BC.splice(2, 0, { label: 'Port', render: function (x) { return portName(x.site); }, csv: function (x) { return portName(x.site); } });
       var rowsB = badges.slice().sort(function (a, c) { var o = { 'Demande en cours': 0, 'Expiré': 1, 'Expire bientôt': 2, 'Suspendu': 3, 'Actif': 4 }; return o[badgeState(a)] - o[badgeState(c)] || a.id.localeCompare(c.id); });
       sb.innerHTML = '<div class="card"><div class="card__h"><h3>Badges d\'accès à la zone portuaire</h3><span class="sub">' + badges.length + ' badges · cliquez une ligne pour viser, renouveler ou suspendre</span><div class="spacer"></div><button class="btn sm" id="bd-csv">' + icon('download') + 'CSV</button>' + (isHSE() ? '<button class="btn primary sm" id="bd-new">' + icon('plus') + 'Demande de badge</button>' : '') + '</div>' + ui.table(BC, rowsB, { onRow: ficheBadge }) + '</div>';
       $('#bd-csv', sb).onclick = function () { ui.exportCSV('badges-isps', BC, rowsB); };
       var nb = $('#bd-new', sb); if (nb) nb.onclick = nouveauBadge;
     } else if (st.vue === 'visiteurs') {
       var VC = [{ label: 'Date', render: function (v) { return '<span class="nowrap">' + fmt.dateShort(v.date) + ' · ' + v.entree + (v.sortie ? ' → ' + v.sortie : '') + '</span>'; }, csv: function (v) { return v.date + ' ' + v.entree + '-' + v.sortie; } }, { label: 'Visiteur', render: function (v) { return '<div class="hse-cell"><b>' + esc(v.nom) + '</b><div class="small muted">' + esc(v.organisme) + ' · ' + esc(v.piece) + '</div></div>'; }, csv: function (v) { return v.nom + ' (' + v.organisme + ')'; } }, { label: 'Motif', render: function (v) { return '<span class="small">' + esc(v.motif) + '</span><div class="small muted">visité : ' + esc(E.empName(v.hote)) + '</div>'; }, csv: function (v) { return v.motif; } }, { label: 'Véhicule', render: function (v) { return esc(v.vehicule || '—'); }, csv: function (v) { return v.vehicule; } }, { label: 'Port', render: function (v) { return v.site === 'POG' ? 'Port-Gentil' : 'Owendo'; }, csv: function (v) { return v.site; } }, { label: 'Statut', render: function (v) { return v.statut === 'Sur site' ? (isHSE() ? '<button class="btn sm" data-out="' + v.id + '">' + icon('logout') + 'Sortie</button>' : ui.badge('Sur site', 'blue')) : ui.badge(v.statut, v.statut === 'Refoulé' ? 'red' : 'grey'); }, csv: function (v) { return v.statut; } }];
+      if (sc) VC = VC.filter(function (c) { return c.label !== 'Port'; });
       sb.innerHTML = '<div class="card"><div class="card__h"><h3>Registre des visiteurs et des véhicules</h3><span class="sub">' + surSite.length + ' personne(s) actuellement sur site</span><div class="spacer"></div><button class="btn sm" id="vi-csv">' + icon('download') + 'CSV</button>' + (isHSE() ? '<button class="btn primary sm" id="vi-new">' + icon('plus') + 'Entrée visiteur</button>' : '') + '</div>' + ui.table(VC, vis, { empty: 'Aucun visiteur' }) + '</div>';
       $('#vi-csv', sb).onclick = function () { ui.exportCSV('registre-visiteurs', VC, vis); };
       var nv = $('#vi-new', sb); if (nv) nv.onclick = nouveauVisiteur;
       $$('[data-out]', sb).forEach(function (bt) { bt.onclick = function () { var v = S.get('visiteurs', bt.dataset.out), d = new Date(); v.sortie = pad(d.getHours()) + ':' + pad(d.getMinutes()); v.statut = 'Sorti'; S.save(); E.log('Sortie visiteur ' + v.id, v.nom, 'hse'); ui.toast('Sortie de ' + v.nom + ' enregistrée — badge visiteur restitué'); tabSurete(el); }; });
     } else if (st.vue === 'dos') {
-      var DCOL = [{ label: 'N°', render: function (d) { return '<b class="nowrap">' + d.id + '</b><div class="small muted">' + fmt.dateShort(d.date) + '</div>'; }, csv: function (d) { return d.id; } }, { label: 'Navire', render: function (d) { return '<b>' + esc(d.navire) + '</b><div class="small muted">IMO ' + esc(d.imo) + ' · ' + (d.site === 'POG' ? 'Port-Gentil' : 'Owendo') + '</div>'; }, csv: function (d) { return d.navire; } }, { label: 'Niveaux', render: function (d) { return '<span class="nowrap">navire ' + d.niveauNavire + ' · port ' + d.niveauPort + '</span>'; }, csv: function (d) { return d.niveauNavire + '/' + d.niveauPort; } }, { label: 'Motif', render: function (d) { return '<span class="small">' + esc(d.motif) + '</span>'; }, csv: function (d) { return d.motif; } }, { label: 'Signataires', render: function (d) { return '<span class="small">' + esc(d.sso) + '<br>' + esc(d.pfso) + ' (PFSO)</span>'; }, csv: function (d) { return d.sso + ' / ' + d.pfso; } }, { label: 'Statut', render: function (d) { return d.statut === 'À signer' && isHSE() ? '<button class="btn sm success" data-sign="' + d.id + '">' + icon('check') + 'Signer</button>' : ui.badge(d.statut, d.statut === 'Signée' ? 'green' : d.statut === 'À signer' ? 'orange' : 'grey'); }, csv: function (d) { return d.statut; } }];
+      var DCOL = [{ label: 'N°', render: function (d) { return '<b class="nowrap">' + d.id + '</b><div class="small muted">' + fmt.dateShort(d.date) + '</div>'; }, csv: function (d) { return d.id; } }, { label: 'Navire', render: function (d) { return '<b>' + esc(d.navire) + '</b><div class="small muted">IMO ' + esc(d.imo || '—') + (sc ? '' : ' · ' + portName(d.site)) + '</div>'; }, csv: function (d) { return d.navire + ' (' + portName(d.site) + ')'; } }, { label: 'Niveaux', render: function (d) { return '<span class="nowrap">navire ' + d.niveauNavire + ' · port ' + d.niveauPort + '</span>'; }, csv: function (d) { return d.niveauNavire + '/' + d.niveauPort; } }, { label: 'Motif', render: function (d) { return '<span class="small">' + esc(d.motif) + '</span>'; }, csv: function (d) { return d.motif; } }, { label: 'Signataires', render: function (d) { return '<span class="small">' + esc(d.sso) + '<br>' + esc(d.pfso) + ' (PFSO)</span>'; }, csv: function (d) { return d.sso + ' / ' + d.pfso; } }, { label: 'Statut', render: function (d) { return d.statut === 'À signer' && isHSE() ? '<button class="btn sm success" data-sign="' + d.id + '">' + icon('check') + 'Signer</button>' : ui.badge(d.statut, d.statut === 'Signée' ? 'green' : d.statut === 'À signer' ? 'orange' : 'grey'); }, csv: function (d) { return d.statut; } }];
       sb.innerHTML = '<div class="card"><div class="card__h"><h3>Déclarations de sûreté navire / port</h3><span class="sub">accord sur les mesures de sûreté de l\'interface navire-port</span><div class="spacer"></div>' + (isHSE() ? '<button class="btn primary sm" id="dos-new">' + icon('plus') + 'Nouvelle déclaration</button>' : '') + '</div>' + ui.table(DCOL, dos) + '</div>';
       $$('[data-sign]', sb).forEach(function (bt) { bt.onclick = function () { var d = S.get('declarationsSurete', bt.dataset.sign); d.statut = 'Signée'; d.pfso = user().name; S.save(); E.log('Déclaration de sûreté signée ' + d.id, d.navire, 'hse'); ui.toast('Déclaration ' + d.id + ' signée'); tabSurete(el); }; });
       var nd = $('#dos-new', sb); if (nd) nd.onclick = function () {
-        var esc0 = (window.GPM_DATA && GPM_DATA.escales ? GPM_DATA.escales() : []).filter(function (e) { return e.statut !== 'Appareillé'; });
-        ui.formModal({ title: 'Déclaration de sûreté', sub: 'Navire / installation portuaire', fields: [{ name: 'escale', label: 'Navire en escale', type: 'select', options: esc0.map(function (e) { return { v: e.id, l: e.navire + ' — ' + e.id }; }), required: true }, { name: 'niveauNavire', label: 'Niveau de sûreté du navire', type: 'select', options: [1, 2, 3] }, { name: 'motif', label: 'Motif', type: 'textarea', required: true }, { name: 'sso', label: 'Agent de sûreté du navire (SSO)', required: true }],
-          onSubmit: function (v) { var e0 = esc0.find(function (e) { return e.id === v.escale; }) || {}; var d = { id: nextId('declarationsSurete', 'DOS-' + yr() + '-', 3), date: E.today(), navire: e0.navire || v.escale, imo: e0.imo || '', site: e0.site || 'OWE', niveauNavire: +v.niveauNavire, niveauPort: x.niveau, motif: v.motif, sso: v.sso, pfso: user().name, statut: 'Signée' }; S.add('declarationsSurete', d); E.log('Déclaration de sûreté ' + d.id, d.navire, 'hse'); ui.toast('Déclaration ' + d.id + ' enregistrée'); tabSurete(el); } });
+        /* navires en escale du site actif (collection `escales` de l'ERP, sinon données partagées avec le site public) */
+        var src0 = S.has('escales') && S.all('escales').length ? S.all('escales') : (window.GPM_DATA && GPM_DATA.escales ? GPM_DATA.escales() : []);
+        var esc0 = src0.filter(function (e) { return e.statut !== 'Appareillé' && (!sc || String(e.site || 'OWE').slice(0, 3) === sc); });
+        var escSite = function (e) { return String(e.site || e.poste || 'OWE').slice(0, 3) === 'POG' ? 'POG' : 'OWE'; };
+        var f0 = esc0.length ? [{ name: 'escale', label: 'Navire en escale', type: 'select', options: esc0.map(function (e) { return { v: e.id, l: e.navire + ' — ' + e.id + (sc ? '' : ' · ' + portName(escSite(e))) }; }), required: true, full: true }] :
+          [{ name: 'navire', label: 'Navire', required: true }, { name: 'imo', label: 'N° IMO' }].concat(sc ? [] : [{ name: 'site', label: 'Port', type: 'select', options: PORT_OPTS }]);
+        ui.formModal({ title: 'Déclaration de sûreté', sub: 'Navire / installation portuaire' + (sc ? ' · ' + portLong(sc) : '') + ' — le niveau du port est celui du port d\'escale', fields: f0.concat([{ name: 'niveauNavire', label: 'Niveau de sûreté du navire', type: 'select', options: [1, 2, 3] }, { name: 'motif', label: 'Motif', type: 'textarea', required: true }, { name: 'sso', label: 'Agent de sûreté du navire (SSO)', required: true }]),
+          onSubmit: function (v) {
+            var e0 = esc0.find(function (e) { return e.id === v.escale; }) || {}, site = sc || (e0.id ? escSite(e0) : v.site) || 'OWE';
+            var d = { id: nextId('declarationsSurete', 'DOS-' + yr() + '-', 3), date: E.today(), navire: e0.navire || v.navire || v.escale, imo: e0.imo || v.imo || '', escale: e0.id || '', site: site, niveauNavire: +v.niveauNavire, niveauPort: isps(site).niveau, motif: v.motif, sso: v.sso, pfso: user().name, statut: 'Signée' };
+            S.add('declarationsSurete', d); E.log('Déclaration de sûreté ' + d.id, d.navire + ' · ' + portName(site), 'hse'); ui.toast('Déclaration ' + d.id + ' enregistrée'); tabSurete(el);
+          } });
       };
     } else {
       var XC = [{ label: 'Date', render: function (e) { return '<b class="nowrap">' + fmt.date(e.date) + '</b><div class="small muted">' + e.id + '</div>'; }, csv: function (e) { return e.date; } }, { label: 'Type', render: function (e) { return ui.badge(e.type, e.type === 'Exercice' ? 'violet' : 'blue'); }, csv: function (e) { return e.type; } }, { label: 'Scénario', render: function (e) { return '<div class="hse-cell"><b>' + esc(e.theme) + '</b>' + (e.constat ? '<div class="small muted">' + esc(e.constat) + '</div>' : '') + '</div>'; }, csv: function (e) { return e.theme; } }, { label: 'Port', render: function (e) { return e.site === 'POG' ? 'Port-Gentil' : 'Owendo'; }, csv: function (e) { return e.site; } }, { label: 'Participants', num: true, key: 'participants' }, { label: 'Résultat', render: function (e) { return e.score != null ? '<b>' + e.score + '</b> / 100' : (isHSE() ? '<button class="btn sm" data-res="' + e.id + '">' + icon('check') + 'Saisir le résultat</button>' : ui.badge('Planifié', 'violet')); }, csv: function (e) { return e.score; } }];
+      if (sc) XC = XC.filter(function (c) { return c.label !== 'Port'; });
       sb.innerHTML = '<div class="card"><div class="card__h"><h3>Exercices et entraînements de sûreté</h3><span class="sub">au moins un exercice tous les 3 mois — plan de sûreté de l\'installation portuaire</span><div class="spacer"></div>' + (isHSE() ? '<button class="btn primary sm" id="ex-new">' + icon('plus') + 'Planifier</button>' : '') + '</div>' + ui.table(XC, exs.slice().reverse()) + '</div>';
       $$('[data-res]', sb).forEach(function (bt) { bt.onclick = function () { var e = S.get('exercicesISPS', bt.dataset.res); ui.formModal({ title: 'Résultat de l\'exercice', sub: esc(e.theme), fields: [{ name: 'score', label: 'Note globale (sur 100)', type: 'number', value: 85, required: true }, { name: 'participants', label: 'Participants', type: 'number', value: e.participants }, { name: 'constat', label: 'Constats et axes d\'amélioration', type: 'textarea', required: true }], onSubmit: function (v) { e.score = +v.score; e.participants = +v.participants; e.constat = v.constat; e.statut = 'Réalisé'; S.save(); E.log('Exercice de sûreté réalisé ' + e.id, e.theme + ' · ' + v.score + '/100', 'hse'); ui.toast('Résultat enregistré'); setTimeout(function () { tabSurete(el); }); } }); }; });
-      var ne = $('#ex-new', sb); if (ne) ne.onclick = function () { ui.formModal({ title: 'Planifier un exercice ou un entraînement', fields: [{ name: 'type', label: 'Type', type: 'select', options: ['Exercice', 'Entraînement'] }, { name: 'date', label: 'Date', type: 'date', value: D(14), required: true }, { name: 'theme', label: 'Scénario', required: true, full: true }, { name: 'site', label: 'Port', type: 'select', options: [{ v: 'OWE', l: 'Owendo' }, { v: 'POG', l: 'Port-Gentil' }] }, { name: 'participants', label: 'Participants prévus', type: 'number', value: 10 }], onSubmit: function (v) { var o = { id: nextId('exercicesISPS', 'EXS-' + yr() + '-', 3), date: v.date, type: v.type, theme: v.theme, site: v.site, participants: +v.participants, statut: 'Planifié', score: null, constat: '' }; S.add('exercicesISPS', o); E.log('Exercice de sûreté planifié ' + o.id, o.theme, 'hse'); ui.toast('Exercice ' + o.id + ' planifié'); setTimeout(function () { tabSurete(el); }); } }); };
+      var ne = $('#ex-new', sb); if (ne) ne.onclick = function () { ui.formModal({ title: 'Planifier un exercice ou un entraînement', fields: [{ name: 'type', label: 'Type', type: 'select', options: ['Exercice', 'Entraînement'] }, { name: 'date', label: 'Date', type: 'date', value: D(14), required: true }, { name: 'theme', label: 'Scénario', required: true, full: true }].concat(sc ? [] : [{ name: 'site', label: 'Port', type: 'select', options: PORT_OPTS }]).concat([{ name: 'participants', label: 'Participants prévus', type: 'number', value: 10 }]), onSubmit: function (v) { var o = { id: nextId('exercicesISPS', 'EXS-' + yr() + '-', 3), date: v.date, type: v.type, theme: v.theme, site: sc || v.site || 'OWE', participants: +v.participants, statut: 'Planifié', score: null, constat: '' }; S.add('exercicesISPS', o); E.log('Exercice de sûreté planifié ' + o.id, o.theme, 'hse'); ui.toast('Exercice ' + o.id + ' planifié'); setTimeout(function () { tabSurete(el); }); } }); };
     }
   }
 
@@ -1515,9 +1732,11 @@
     seed: seed, init: init, render: render,
     summary: function () {
       var a = actifs(), feu = a.filter(function (p) { return p.type === 'FEU'; }).length, late = lateActions().length;
-      var nv = isps().niveau;
-      return [{ label: 'Niveau de sûreté ISPS', value: String(nv), icon: 'lock', tone: nv === 1 ? 'green' : nv === 2 ? 'orange' : 'red', foot: NIV[nv].l + ' · ' + S.all('visiteurs').filter(function (v) { return v.statut === 'Sur site'; }).length + ' visiteur(s) sur site', href: '#/hse/surete' },
-        { label: 'Jours sans accident avec arrêt', value: String(joursSans()), icon: 'shield', tone: 'green', foot: 'Record des ports : ' + Math.max(412, joursSans()) + ' jours', href: '#/hse/indicateurs' },
+      /* niveau du site actif ; en vue globale, le niveau le plus élevé avec le détail des deux ports */
+      var sc = SC(), nv = sc ? isps(sc).niveau : ispsMax(), vis = S.all('visiteurs').filter(function (v) { return v.statut === 'Sur site'; }).length;
+      var nFoot = sc ? NIV[nv].l : 'Owendo ' + isps('OWE').niveau + ' · Port-Gentil ' + isps('POG').niveau;
+      return [{ label: sc ? 'Niveau de sûreté ISPS' : 'Niveau de sûreté ISPS (max.)', value: String(nv), icon: 'lock', tone: nv === 1 ? 'green' : nv === 2 ? 'orange' : 'red', foot: nFoot + ' · ' + vis + ' visiteur(s) sur site', href: '#/hse/surete' },
+        { label: 'Jours sans accident avec arrêt', value: String(joursSans()), icon: 'shield', tone: 'green', foot: recordLbl() + ' : ' + recordJ() + ' jours', href: '#/hse/indicateurs' },
         { label: 'Permis de travail actifs', value: String(a.length), icon: 'helmet', tone: feu ? 'red' : 'blue', foot: feu + ' permis de feu en cours', href: '#/hse' },
         { label: 'Actions HSE en retard', value: String(late), icon: 'alert', tone: late ? 'orange' : 'green', foot: S.all('actionsHSE').filter(function (x) { return x.statut !== 'Réalisée'; }).length + ' actions ouvertes', href: '#/hse/actions' }];
     },

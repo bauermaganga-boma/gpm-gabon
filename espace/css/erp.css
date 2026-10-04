@@ -311,3 +311,82 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media print{.side,.top,.demo-bar,.modal__f,.no-print{display:none!important} .app{display:block} .modal-back{position:static;background:none;padding:0} .modal{box-shadow:none;max-height:none}}
+
+/* ---------- Espaces par site (Direction générale · Libreville · Port-Gentil) ---------- */
+.space-box{padding:12px 14px 4px}
+.space-box__lbl{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#8ea0bd;font-weight:600;margin:0 2px 6px}
+.space-switch{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:4px}
+.space-switch button{border:0;background:none;color:#c9d4e6;border-radius:9px;padding:8px 4px;cursor:pointer;font-size:12px;line-height:1.1;transition:background .15s,color .15s}
+.space-switch button b{font-weight:600}
+.space-switch button:hover{background:rgba(255,255,255,.08);color:#fff}
+.space-switch button.is-active{background:var(--yellow);color:#06284f}
+body[data-space="OWE"] .space-switch button.is-active{background:#3a75c4;color:#fff}
+body[data-space="POG"] .space-switch button.is-active{background:#009e60;color:#fff}
+.space-pill{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:9px 12px;color:#fff}
+.space-pill svg{width:18px;height:18px;flex:none;color:var(--yellow)}
+.space-pill b{display:block;font-size:13px}
+.space-pill span{display:block;font-size:11.5px;color:#aebbd4}
+.top-space{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:20px;padding:2px 8px;margin-right:6px;vertical-align:1px;background:#fff7cc;color:#7a5b00}
+.top-space.sp-OWE{background:#e3edfb;color:#1b4f9c}
+.top-space.sp-POG{background:#dcf5ea;color:#05664a}
+/* Couleur de l'espace Port-Gentil : barre latérale vert océan */
+body[data-space="POG"] .side{background:linear-gradient(180deg,#053d34 0%,#03241f 100%)}
+body[data-space="POG"] .side__link.is-active{background:rgba(61,220,151,.12)}
+body[data-space="POG"] .side__link.is-active::before{background:#3ddc97}
+body[data-space="POG"] .side__link.is-active svg{color:#3ddc97}
+body[data-space="POG"] .space-pill svg{color:#3ddc97}
+body[data-space="OWE"] .space-pill svg{color:#7fb0ef}
+@media (max-width:640px){.top-space{font-size:9.5px;padding:1px 6px}}
+/* Vue consolidée & paramétrage des espaces */
+.sit-hero{background:linear-gradient(120deg,#06284f 0%,#0b3a6e 55%,#053d34 100%);color:#fff;border:0;margin-bottom:16px;overflow:hidden}
+.sit-hero .card__b{display:flex;gap:24px;align-items:center;flex-wrap:wrap;padding:22px 24px}
+.sit-hero .card__b>div:first-child{flex:1;min-width:240px}
+.sit-hero__k{font-size:12px;color:#fcd116;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.sit-hero h2{font-size:24px;margin:6px 0 6px}
+.sit-hero p{margin:0;color:#c9d4e6;max-width:560px}
+.sit-hero__tot{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.sit-hero__tot div{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:10px 14px;min-width:96px}
+.sit-hero__tot b{display:block;font:700 24px Sora,sans-serif}
+.sit-hero__tot span{font-size:11.5px;color:#aebbd4}
+.sit-card{overflow:hidden;border-top:4px solid #3a75c4}
+.sit-card.sit-POG{border-top-color:#009e60}
+.sit-card__h{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line-2)}
+.sit-card__h>div:nth-child(2){flex:1;min-width:0}
+.sit-card__h b{display:block;font:700 16px Sora,sans-serif}
+.sit-card__h span{font-size:12.5px;color:var(--ink-3)}
+.sit-card__ico{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;background:#e3edfb;color:#1b4f9c;flex:none}
+.sit-POG .sit-card__ico{background:#dcf5ea;color:#05664a}
+.sit-card__ico svg{width:22px;height:22px}
+.sit-card__kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-bottom:1px solid var(--line-2)}
+.sit-card__kpis div{padding:14px 16px;border-right:1px solid var(--line-2)}
+.sit-card__kpis div:last-child{border-right:0}
+.sit-card__kpis b{display:block;font:700 22px Sora,sans-serif}
+.sit-card__kpis span{font-size:12px;color:var(--ink-3)}
+.sit-card__pend{padding:14px 18px}
+.sit-pend{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px dashed var(--line-2);font-size:13px;min-width:0}
+.sit-pend svg{width:16px;height:16px;color:var(--orange);flex:none}
+.sit-pend span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sit-pend em{font-style:normal;font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.sit-mod{display:flex;align-items:center;gap:10px}
+.sit-mod svg{width:18px;height:18px;color:var(--navy-3);flex:none}
+.sit-mod b{display:block}
+.sit-sub{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+.sit-mods{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.sit-tog{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer;font-size:13px;min-width:0}
+.sit-tog input{position:absolute;opacity:0;pointer-events:none}
+.sit-tog__sw{width:30px;height:18px;border-radius:20px;background:#cbd5e1;position:relative;flex:none;transition:background .15s}
+.sit-tog__sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s}
+.sit-tog input:checked+.sit-tog__sw{background:var(--green)}
+.sit-tog input:checked+.sit-tog__sw::after{transform:translateX(12px)}
+.sit-tog input:focus-visible+.sit-tog__sw{outline:2px solid var(--blue);outline-offset:2px}
+.sit-tog svg{width:16px;height:16px;color:var(--ink-3);flex:none}
+.sit-tog>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.sit-tog em{font-style:normal;color:var(--ink-3);font-size:11.5px}
+.sit-tog.is-fixed{opacity:.55;cursor:not-allowed}
+@media (max-width:900px){.sit-hero__tot{grid-template-columns:repeat(2,minmax(0,1fr));width:100%}}
+@media (max-width:640px){.sit-card__kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.sit-card__kpis div:nth-child(2){border-right:0}.sit-card__kpis div:nth-child(-n+2){border-bottom:1px solid var(--line-2)}.sit-mods{grid-template-columns:1fr}.sit-card__h{flex-wrap:wrap}.sit-card__h .btn{width:100%;justify-content:center}}
+/* Fil d'Ariane sur une ligne ; sur téléphone, seule la pastille d'espace est affichée */
+.top__title{min-width:0}
+.top__title .crumb{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:640px){#top-crumb{display:none}.top__title .crumb{line-height:1.2}}
+@media (max-width:900px){.grid.sit-cards{grid-template-columns:minmax(0,1fr)}}
